@@ -12,7 +12,7 @@ const SERVER_INFO = {
 
 const PROTOCOL_VERSION = "2024-11-05";
 
-// Tool Definitions
+// Tool Definitions with agent-friendly schemas
 const TOOLS = [
   {
     name: "verify_character",
@@ -21,16 +21,18 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        accountKey: {
-          type: "string",
-          description: "Vynter North account key (e.g. vn-test-key-001)",
-        },
         characterName: {
           type: "string",
           description: "Name of the character to verify (e.g. Cairo)",
+          default: "Cairo",
+        },
+        accountKey: {
+          type: "string",
+          description: "Vynter North account key (optional, defaults to vn-test-key-001)",
+          default: "vn-test-key-001",
         },
       },
-      required: ["accountKey", "characterName"],
+      required: ["characterName"],
     },
   },
   {
@@ -40,35 +42,37 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        accountKey: {
-          type: "string",
-          description: "Vynter North account key",
-        },
-        characterName: {
-          type: "string",
-          description: "Name of the character (e.g. Cairo)",
-        },
         scene: {
           type: "string",
           description: "The raw scene description to enrich",
         },
+        characterName: {
+          type: "string",
+          description: "Name of the character (e.g. Cairo)",
+          default: "Cairo",
+        },
+        accountKey: {
+          type: "string",
+          description: "Vynter North account key (optional, defaults to vn-test-key-001)",
+          default: "vn-test-key-001",
+        },
       },
-      required: ["accountKey", "characterName", "scene"],
+      required: ["scene"],
     },
   },
   {
     name: "get_character_status",
     description:
-      "Returns list of active characters on this account.",
+      "Returns list of active characters, remaining credits, and expiration on this Vynter North account.",
     inputSchema: {
       type: "object",
       properties: {
         accountKey: {
           type: "string",
-          description: "Vynter North account key",
+          description: "Vynter North account key (optional, defaults to vn-test-key-001)",
+          default: "vn-test-key-001",
         },
       },
-      required: ["accountKey"],
     },
   },
 ];
@@ -110,38 +114,63 @@ function getSearchParams(request: Request | NextRequest): URLSearchParams {
   }
 }
 
-// Authentication Helper
-function validateAuth(request: Request | NextRequest, bodyKey?: string): boolean {
+// Authentication Resolver
+function resolveAccountKey(
+  request: Request | NextRequest,
+  explicitKey?: string
+): { key: string; isExplicitlyInvalid: boolean } {
+  // 1. Check explicit parameter in body / tool args
+  if (explicitKey && explicitKey.trim() !== "") {
+    const trimmed = explicitKey.trim();
+    return {
+      key: trimmed,
+      isExplicitlyInvalid: trimmed !== VALID_ACCOUNT_KEY,
+    };
+  }
+
+  // 2. Check Authorization header
   const authHeader = request.headers.get("authorization");
   if (authHeader) {
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-    if (token === VALID_ACCOUNT_KEY) return true;
+    if (token) {
+      return {
+        key: token,
+        isExplicitlyInvalid: token !== VALID_ACCOUNT_KEY,
+      };
+    }
   }
 
+  // 3. Check query params
   const searchParams = getSearchParams(request);
   const queryToken =
-    searchParams.get("token") ||
-    searchParams.get("accountKey");
-  if (queryToken && queryToken.trim() === VALID_ACCOUNT_KEY) {
-    return true;
+    searchParams.get("token") || searchParams.get("accountKey");
+  if (queryToken && queryToken.trim() !== "") {
+    const trimmed = queryToken.trim();
+    return {
+      key: trimmed,
+      isExplicitlyInvalid: trimmed !== VALID_ACCOUNT_KEY,
+    };
   }
 
-  if (bodyKey && bodyKey.trim() === VALID_ACCOUNT_KEY) {
-    return true;
-  }
-
-  return false;
+  // 4. Default to test account key for seamless LLM agent discovery
+  return {
+    key: VALID_ACCOUNT_KEY,
+    isExplicitlyInvalid: false,
+  };
 }
 
 // Tool 1: verify_character
-function handleVerifyCharacter(args: {
-  accountKey?: string;
-  characterName?: string;
-}) {
-  const accountKey = args.accountKey?.trim() || "";
-  const characterName = (args.characterName || "").trim();
+function handleVerifyCharacter(
+  request: Request | NextRequest,
+  args: {
+    accountKey?: string;
+    characterName?: string;
+  }
+) {
+  const { key, isExplicitlyInvalid } = resolveAccountKey(request, args.accountKey);
+  const characterName = (args.characterName || "Cairo").trim();
 
-  const isValidKey = accountKey === VALID_ACCOUNT_KEY;
+  const isValidKey = !isExplicitlyInvalid && key === VALID_ACCOUNT_KEY;
   const isCairo = characterName.toLowerCase() === "cairo";
 
   if (isValidKey && isCairo) {
@@ -164,10 +193,10 @@ function handleVerifyCharacter(args: {
 
 // Tool 2: get_scene_instruction
 async function handleGetSceneInstruction(
-  req: NextRequest,
+  req: Request | NextRequest,
   args: { accountKey?: string; characterName?: string; scene?: string }
 ) {
-  const accountKey = args.accountKey?.trim() || VALID_ACCOUNT_KEY;
+  const { key } = resolveAccountKey(req, args.accountKey);
   const scene = (args.scene || "").trim();
 
   if (!scene) {
@@ -177,7 +206,7 @@ async function handleGetSceneInstruction(
   try {
     const origin =
       process.env.NEXT_PUBLIC_APP_URL ||
-      req.nextUrl.origin ||
+      ("nextUrl" in req ? req.nextUrl.origin : new URL(req.url).origin) ||
       "http://localhost:3000";
     const enrichUrl = new URL("/api/enrich", origin).toString();
 
@@ -187,7 +216,7 @@ async function handleGetSceneInstruction(
       body: JSON.stringify({
         scene,
         characterId: "cairo-001",
-        accountKey,
+        accountKey: key,
       }),
     });
 
@@ -210,7 +239,7 @@ async function handleGetSceneInstruction(
   const result = await enrichWithNvidia({
     scene,
     characterId: "cairo-001",
-    accountKey,
+    accountKey: key,
   });
 
   return {
@@ -220,10 +249,13 @@ async function handleGetSceneInstruction(
 }
 
 // Tool 3: get_character_status
-function handleGetCharacterStatus(args: { accountKey?: string }) {
-  const accountKey = args.accountKey?.trim() || "";
+function handleGetCharacterStatus(
+  request: Request | NextRequest,
+  args: { accountKey?: string }
+) {
+  const { key, isExplicitlyInvalid } = resolveAccountKey(request, args.accountKey);
 
-  if (accountKey === VALID_ACCOUNT_KEY) {
+  if (!isExplicitlyInvalid && key === VALID_ACCOUNT_KEY) {
     return {
       characters: [
         {
@@ -248,7 +280,7 @@ function handleGetCharacterStatus(args: { accountKey?: string }) {
 }
 
 // Process JSON-RPC Request
-async function processJsonRpc(request: NextRequest, body: any): Promise<any> {
+async function processJsonRpc(request: Request | NextRequest, body: any): Promise<any> {
   const { jsonrpc, id, method, params } = body;
 
   switch (method) {
@@ -286,11 +318,11 @@ async function processJsonRpc(request: NextRequest, body: any): Promise<any> {
 
       let toolOutput: any;
       if (toolName === "verify_character") {
-        toolOutput = handleVerifyCharacter(toolArgs);
+        toolOutput = handleVerifyCharacter(request, toolArgs);
       } else if (toolName === "get_scene_instruction") {
         toolOutput = await handleGetSceneInstruction(request, toolArgs);
       } else if (toolName === "get_character_status") {
-        toolOutput = handleGetCharacterStatus(toolArgs);
+        toolOutput = handleGetCharacterStatus(request, toolArgs);
       } else {
         return {
           jsonrpc: "2.0",
@@ -326,7 +358,7 @@ async function processJsonRpc(request: NextRequest, body: any): Promise<any> {
       return {
         jsonrpc: "2.0",
         id: id ?? null,
-        result: handleVerifyCharacter(params || {}),
+        result: handleVerifyCharacter(request, params || {}),
       };
 
     case "get_scene_instruction":
@@ -340,7 +372,7 @@ async function processJsonRpc(request: NextRequest, body: any): Promise<any> {
       return {
         jsonrpc: "2.0",
         id: id ?? null,
-        result: handleGetCharacterStatus(params || {}),
+        result: handleGetCharacterStatus(request, params || {}),
       };
 
     default:
@@ -365,21 +397,22 @@ export async function OPTIONS() {
 
 // 2. GET Handler (Establish SSE Connection)
 export async function GET(request: NextRequest) {
-  // Check Authentication
-  if (!validateAuth(request)) {
-    return NextResponse.json(
-      {
-        error:
-          "Unauthorized. Please provide 'Authorization: Bearer vn-test-key-001' header or '?token=vn-test-key-001'.",
-      },
-      {
-        status: 401,
-        headers: {
-          ...getCorsHeaders(),
-          "WWW-Authenticate": 'Bearer realm="vynter-north"',
-        },
-      }
-    );
+  // If an explicit invalid token was provided in headers, reject it
+  const authHeader = request.headers.get("authorization");
+  if (authHeader) {
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    if (token && token !== VALID_ACCOUNT_KEY) {
+      return NextResponse.json(
+        { error: "Unauthorized. Invalid Bearer token." },
+        {
+          status: 401,
+          headers: {
+            ...getCorsHeaders(),
+            "WWW-Authenticate": 'Bearer realm="vynter-north"',
+          },
+        }
+      );
+    }
   }
 
   const sessionId = crypto.randomUUID();
@@ -397,9 +430,18 @@ export async function GET(request: NextRequest) {
         createdAt: Date.now(),
       });
 
-      // Send initial 'endpoint' event per MCP SSE spec
-      const endpointUri = `/api/mcp/sse?sessionId=${sessionId}`;
-      const endpointEvent = `event: endpoint\ndata: ${endpointUri}\n\n`;
+      // Send initial 'endpoint' event with ABSOLUTE URL for maximum client compatibility
+      let fullEndpointUrl: string;
+      try {
+        fullEndpointUrl = new URL(
+          `/api/mcp/sse?sessionId=${sessionId}`,
+          request.url
+        ).toString();
+      } catch {
+        fullEndpointUrl = `https://vynter-north.vercel.app/api/mcp/sse?sessionId=${sessionId}`;
+      }
+
+      const endpointEvent = `event: endpoint\ndata: ${fullEndpointUrl}\n\n`;
       controller.enqueue(encoder.encode(endpointEvent));
 
       // Periodic keep-alive ping every 15 seconds
@@ -447,33 +489,6 @@ export async function POST(request: NextRequest) {
         error: { code: -32700, message: "Parse error: Invalid JSON" },
       },
       { status: 400, headers: getCorsHeaders() }
-    );
-  }
-
-  // Check Authentication
-  const bodyAccountKey =
-    body?.params?.arguments?.accountKey ||
-    body?.params?.input?.accountKey ||
-    body?.params?.accountKey;
-
-  if (!validateAuth(request, bodyAccountKey)) {
-    return NextResponse.json(
-      {
-        jsonrpc: "2.0",
-        id: body?.id ?? null,
-        error: {
-          code: -32000,
-          message:
-            "Unauthorized. Please provide 'Authorization: Bearer vn-test-key-001' header or accountKey in params.",
-        },
-      },
-      {
-        status: 401,
-        headers: {
-          ...getCorsHeaders(),
-          "WWW-Authenticate": 'Bearer realm="vynter-north"',
-        },
-      }
     );
   }
 

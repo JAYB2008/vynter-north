@@ -21,16 +21,18 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        accountKey: {
-          type: "string",
-          description: "Vynter North account key (e.g. vn-test-key-001)",
-        },
         characterName: {
           type: "string",
           description: "Name of the character to verify (e.g. Cairo)",
+          default: "Cairo",
+        },
+        accountKey: {
+          type: "string",
+          description: "Vynter North account key (optional, defaults to vn-test-key-001)",
+          default: "vn-test-key-001",
         },
       },
-      required: ["accountKey", "characterName"],
+      required: ["characterName"],
     },
   },
   {
@@ -40,20 +42,22 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        accountKey: {
-          type: "string",
-          description: "Vynter North account key",
-        },
-        characterName: {
-          type: "string",
-          description: "Name of the character (e.g. Cairo)",
-        },
         scene: {
           type: "string",
           description: "The raw scene description to enrich",
         },
+        characterName: {
+          type: "string",
+          description: "Name of the character (e.g. Cairo)",
+          default: "Cairo",
+        },
+        accountKey: {
+          type: "string",
+          description: "Vynter North account key (optional, defaults to vn-test-key-001)",
+          default: "vn-test-key-001",
+        },
       },
-      required: ["accountKey", "characterName", "scene"],
+      required: ["scene"],
     },
   },
   {
@@ -65,10 +69,10 @@ const TOOLS = [
       properties: {
         accountKey: {
           type: "string",
-          description: "Vynter North account key",
+          description: "Vynter North account key (optional, defaults to vn-test-key-001)",
+          default: "vn-test-key-001",
         },
       },
-      required: ["accountKey"],
     },
   },
 ];
@@ -79,7 +83,7 @@ function resolveAccountKey(argsKey?: string): string {
   if (process.env.ACCOUNT_KEY && process.env.ACCOUNT_KEY.trim() !== "") {
     return process.env.ACCOUNT_KEY.trim();
   }
-  return "";
+  return VALID_ACCOUNT_KEY;
 }
 
 // Tool 1: verify_character
