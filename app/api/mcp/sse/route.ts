@@ -3,6 +3,7 @@ import {
   enrichWithNvidia,
   VALID_ACCOUNT_KEY,
 } from "@/app/api/enrich/route";
+import { getAllCharacters } from "@/lib/db";
 
 // Server Metadata
 const SERVER_INFO = {
@@ -10,7 +11,7 @@ const SERVER_INFO = {
   version: "1.0.0",
 };
 
-const PROTOCOL_VERSION = "2024-11-05";
+const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 
 // Tool Definitions with agent-friendly schemas
 const TOOLS = [
@@ -23,7 +24,7 @@ const TOOLS = [
       properties: {
         characterName: {
           type: "string",
-          description: "Name of the character to verify (e.g. Cairo)",
+          description: "Name of the character to verify (e.g. Cairo, James, Aria Vance, Marcus Drake)",
           default: "Cairo",
         },
         accountKey: {
@@ -63,7 +64,7 @@ const TOOLS = [
   {
     name: "get_character_status",
     description:
-      "Returns list of active characters, remaining credits, and expiration on this Vynter North account.",
+      "Returns live list of active characters, remaining credits, and expiration on this Vynter North account.",
     inputSchema: {
       type: "object",
       properties: {
@@ -119,7 +120,6 @@ function resolveAccountKey(
   request: Request | NextRequest,
   explicitKey?: string
 ): { key: string; isExplicitlyInvalid: boolean } {
-  // 1. Check explicit parameter in body / tool args
   if (explicitKey && explicitKey.trim() !== "") {
     const trimmed = explicitKey.trim();
     return {
@@ -128,7 +128,6 @@ function resolveAccountKey(
     };
   }
 
-  // 2. Check Authorization header
   const authHeader = request.headers.get("authorization");
   if (authHeader) {
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
@@ -140,7 +139,6 @@ function resolveAccountKey(
     }
   }
 
-  // 3. Check query params
   const searchParams = getSearchParams(request);
   const queryToken =
     searchParams.get("token") || searchParams.get("accountKey");
@@ -152,15 +150,14 @@ function resolveAccountKey(
     };
   }
 
-  // 4. Default to test account key for seamless LLM agent discovery
   return {
     key: VALID_ACCOUNT_KEY,
     isExplicitlyInvalid: false,
   };
 }
 
-// Tool 1: verify_character
-function handleVerifyCharacter(
+// Tool 1: verify_character (reads live database registry)
+async function handleVerifyCharacter(
   request: Request | NextRequest,
   args: {
     accountKey?: string;
@@ -168,26 +165,50 @@ function handleVerifyCharacter(
   }
 ) {
   const { key, isExplicitlyInvalid } = resolveAccountKey(request, args.accountKey);
-  const characterName = (args.characterName || "Cairo").trim();
+  const targetName = (args.characterName || "Cairo").trim().toLowerCase();
 
   const isValidKey = !isExplicitlyInvalid && key === VALID_ACCOUNT_KEY;
-  const isCairo = characterName.toLowerCase() === "cairo";
 
-  if (isValidKey && isCairo) {
-    return {
-      valid: true,
-      characterName: "Cairo",
-      vibeSummary:
-        "Overconfident but genuinely skilled. Sideways lean, plants feet wide, very deliberate stops. Gets louder and more performative when scared, but goes completely quiet and competent in crisis.",
-      creditsRemaining: 500,
-    };
+  if (isValidKey) {
+    // Query live character registry
+    const characters = await getAllCharacters();
+    const match = characters.find(
+      (c) => c.name.toLowerCase() === targetName || c.name.toLowerCase().includes(targetName)
+    );
+
+    if (match) {
+      return {
+        valid: true,
+        characterName: match.name,
+        vibeSummary:
+          match.skills?.vibe_summary ||
+          match.description ||
+          "Overconfident but genuinely skilled. Sideways lean, plants feet wide. Gets louder and more performative when scared, but goes completely quiet and competent in crisis.",
+        coreTrait: match.skills?.core_trait || "Dynamic",
+        creditsRemaining: 500,
+        status: "active",
+      };
+    }
+
+    // Default Cairo fallback if exact match not found
+    if (targetName === "cairo") {
+      return {
+        valid: true,
+        characterName: "Cairo",
+        vibeSummary:
+          "Overconfident but genuinely skilled. Sideways lean, plants feet wide, very deliberate stops. Gets louder and more performative when scared, but goes completely quiet and competent in crisis.",
+        creditsRemaining: 500,
+        status: "active",
+      };
+    }
   }
 
   return {
     valid: false,
-    characterName: characterName || "Unknown",
+    characterName: args.characterName || "Unknown",
     vibeSummary: "",
     creditsRemaining: 0,
+    status: "inactive",
   };
 }
 
@@ -248,27 +269,33 @@ async function handleGetSceneInstruction(
   };
 }
 
-// Tool 3: get_character_status
-function handleGetCharacterStatus(
+// Tool 3: get_character_status (reads live character registry & accounts)
+async function handleGetCharacterStatus(
   request: Request | NextRequest,
   args: { accountKey?: string }
 ) {
   const { key, isExplicitlyInvalid } = resolveAccountKey(request, args.accountKey);
 
   if (!isExplicitlyInvalid && key === VALID_ACCOUNT_KEY) {
-    return {
-      characters: [
-        {
-          name: "Cairo",
-          characterName: "Cairo",
-          status: "active",
-          creditsRemaining: 500,
-          expiresIn: "30 days",
-          skillsSummary: "Overconfident but genuinely skilled",
-        },
-      ],
+    // Read live characters from the registry
+    const characters = await getAllCharacters();
+
+    const activeList = characters.map((c) => ({
+      name: c.name,
+      characterName: c.name,
+      status: "active",
       creditsRemaining: 500,
       expiresIn: "30 days",
+      coreTrait: c.skills?.core_trait || "Dynamic",
+      skillsSummary: c.skills?.vibe_summary || c.description || "Active character in registry",
+    }));
+
+    return {
+      characters: activeList,
+      totalActiveCharacters: activeList.length,
+      creditsRemaining: 500,
+      expiresIn: "30 days",
+      accountKey: "vn-test-key-001",
     };
   }
 
@@ -279,23 +306,26 @@ function handleGetCharacterStatus(
   };
 }
 
-// Process JSON-RPC Request
+// Process JSON-RPC Request with Dynamic Protocol Negotiation
 async function processJsonRpc(request: Request | NextRequest, body: any): Promise<any> {
   const { jsonrpc, id, method, params } = body;
 
   switch (method) {
-    case "initialize":
+    case "initialize": {
+      // Dynamic Protocol Negotiation: Accept client-requested protocol version or default
+      const negotiatedVersion = params?.protocolVersion || DEFAULT_PROTOCOL_VERSION;
       return {
         jsonrpc: "2.0",
         id: id ?? null,
         result: {
-          protocolVersion: PROTOCOL_VERSION,
+          protocolVersion: negotiatedVersion,
           capabilities: {
             tools: {},
           },
           serverInfo: SERVER_INFO,
         },
       };
+    }
 
     case "notifications/initialized":
       return null;
@@ -318,11 +348,11 @@ async function processJsonRpc(request: Request | NextRequest, body: any): Promis
 
       let toolOutput: any;
       if (toolName === "verify_character") {
-        toolOutput = handleVerifyCharacter(request, toolArgs);
+        toolOutput = await handleVerifyCharacter(request, toolArgs);
       } else if (toolName === "get_scene_instruction") {
         toolOutput = await handleGetSceneInstruction(request, toolArgs);
       } else if (toolName === "get_character_status") {
-        toolOutput = handleGetCharacterStatus(request, toolArgs);
+        toolOutput = await handleGetCharacterStatus(request, toolArgs);
       } else {
         return {
           jsonrpc: "2.0",
@@ -358,7 +388,7 @@ async function processJsonRpc(request: Request | NextRequest, body: any): Promis
       return {
         jsonrpc: "2.0",
         id: id ?? null,
-        result: handleVerifyCharacter(request, params || {}),
+        result: await handleVerifyCharacter(request, params || {}),
       };
 
     case "get_scene_instruction":
@@ -372,7 +402,7 @@ async function processJsonRpc(request: Request | NextRequest, body: any): Promis
       return {
         jsonrpc: "2.0",
         id: id ?? null,
-        result: handleGetCharacterStatus(request, params || {}),
+        result: await handleGetCharacterStatus(request, params || {}),
       };
 
     default:
@@ -397,40 +427,19 @@ export async function OPTIONS() {
 
 // 2. GET Handler (Establish SSE Connection)
 export async function GET(request: NextRequest) {
-  // If an explicit invalid token was provided in headers, reject it
-  const authHeader = request.headers.get("authorization");
-  if (authHeader) {
-    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-    if (token && token !== VALID_ACCOUNT_KEY) {
-      return NextResponse.json(
-        { error: "Unauthorized. Invalid Bearer token." },
-        {
-          status: 401,
-          headers: {
-            ...getCorsHeaders(),
-            "WWW-Authenticate": 'Bearer realm="vynter-north"',
-          },
-        }
-      );
-    }
-  }
-
   const sessionId = crypto.randomUUID();
   const encoder = new TextEncoder();
 
-  // Create SSE stream
   let pingInterval: NodeJS.Timeout | null = null;
 
   const stream = new ReadableStream({
     start(controller) {
-      // Register session
       sessions.set(sessionId, {
         controller,
         encoder,
         createdAt: Date.now(),
       });
 
-      // Send initial 'endpoint' event with ABSOLUTE URL for maximum client compatibility
       let fullEndpointUrl: string;
       try {
         fullEndpointUrl = new URL(
@@ -444,7 +453,6 @@ export async function GET(request: NextRequest) {
       const endpointEvent = `event: endpoint\ndata: ${fullEndpointUrl}\n\n`;
       controller.enqueue(encoder.encode(endpointEvent));
 
-      // Periodic keep-alive ping every 15 seconds
       pingInterval = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": ping\n\n"));
@@ -495,7 +503,6 @@ export async function POST(request: NextRequest) {
   try {
     const jsonRpcResponse = await processJsonRpc(request, body);
 
-    // If notification (e.g. notifications/initialized), return 204
     if (!jsonRpcResponse) {
       return new NextResponse(null, {
         status: 204,
@@ -503,7 +510,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // If an active SSE session exists for this sessionId, send over SSE stream
+    // Serverless-resilient SSE streaming: Push to active SSE stream if session exists on this worker
     const searchParams = getSearchParams(request);
     const sessionId = searchParams.get("sessionId");
     if (sessionId && sessions.has(sessionId)) {
@@ -518,7 +525,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Also return response body in HTTP POST response for maximum client compatibility
+    // Dual-delivery: Return full JSON-RPC response in HTTP POST response payload
     return NextResponse.json(jsonRpcResponse, {
       status: 200,
       headers: getCorsHeaders(),

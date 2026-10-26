@@ -88,6 +88,34 @@ const defaultDemoCharacters: Array<{ character: Character; skills: CharacterSkil
       created_at: new Date().toISOString(),
     },
   },
+  {
+    character: {
+      id: "cairo-001",
+      name: "Cairo",
+      description: "Overconfident but genuinely skilled agent defined by distinct physical habits and extreme crisis competence.",
+      created_at: new Date().toISOString(),
+    },
+    skills: {
+      id: "s004-cairo",
+      character_id: "cairo-001",
+      resting_expression: "Smug",
+      movement_style: "Sideways lean, plants feet wide, very deliberate stops",
+      signature_gesture: "Smooths down jacket lapels, adjusts posture with sideways lean",
+      stress_reaction: "Gets louder and more performative when scared",
+      core_trait: "Overconfident but genuinely skilled",
+      secondary_trait: "Performative under stress",
+      handles_danger: "Goes completely quiet and competent when someone else is in danger",
+      what_makes_laugh: "When an opponent underestimates him",
+      what_makes_angry: "Having his skills dismissed as mere luck",
+      hidden_quality: "Goes completely quiet and competent when someone else is in danger",
+      speaking_pace: "Fast when performing, slow when serious",
+      language_mixing: null,
+      humor_style: "Cocky banter",
+      catchphrase: "Watch and learn.",
+      vibe_summary: "Overconfident but genuinely skilled. Sideways lean, plants feet wide. Gets louder and more performative when scared, but goes completely quiet and competent in crisis.",
+      created_at: new Date().toISOString(),
+    },
+  },
 ];
 
 // In-memory memory storage singleton for non-Supabase dev mode
