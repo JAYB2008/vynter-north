@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  enrichSceneWithNvidia,
+  enrichWithNvidia,
   VALID_ACCOUNT_KEY,
-} from "@/lib/enrichmentService";
+} from "@/app/api/enrich/route";
 
 // MCP Server Metadata
 const SERVER_INFO = {
@@ -12,7 +12,7 @@ const SERVER_INFO = {
 
 const PROTOCOL_VERSION = "2024-11-05";
 
-// Tool Definitions for MCP
+// Tool Definitions for Model Context Protocol
 const TOOLS = [
   {
     name: "verify_character",
@@ -59,7 +59,7 @@ const TOOLS = [
   {
     name: "get_character_status",
     description:
-      "Returns list of active characters, remaining credits, and expiration on this Vynter North account.",
+      "Returns list of active characters on this account.",
     inputSchema: {
       type: "object",
       properties: {
@@ -82,7 +82,8 @@ function resolveAccountKey(argsKey?: string): string {
   return "";
 }
 
-// Tool 1 Implementation: verify_character
+// Tool 1: verify_character
+// Returns: { valid: boolean, characterName: string, vibeSummary: string, creditsRemaining: number }
 function handleVerifyCharacter(args: {
   accountKey?: string;
   characterName?: string;
@@ -98,7 +99,7 @@ function handleVerifyCharacter(args: {
       valid: true,
       characterName: "Cairo",
       vibeSummary:
-        "Overconfident but genuinely skilled. Sideways lean, plants feet wide. Gets louder and more performative when scared, but goes completely quiet and competent in crisis.",
+        "Overconfident but genuinely skilled. Sideways lean, plants feet wide, very deliberate stops. Gets louder and more performative when scared, but goes completely quiet and competent in crisis.",
       creditsRemaining: 500,
     };
   }
@@ -111,20 +112,20 @@ function handleVerifyCharacter(args: {
   };
 }
 
-// Tool 2 Implementation: get_scene_instruction
+// Tool 2: get_scene_instruction
+// Calls /api/enrich internally and returns: { enrichedPrompt: string, behaviorBreakdown: object }
 async function handleGetSceneInstruction(
   req: NextRequest,
   args: { accountKey?: string; characterName?: string; scene?: string }
 ) {
   const accountKey = resolveAccountKey(args.accountKey);
   const scene = (args.scene || "").trim();
-  const characterName = (args.characterName || "Cairo").trim();
 
   if (!scene) {
     throw new Error("Field 'scene' is required.");
   }
 
-  // Attempt internal call to /api/enrich endpoint
+  // Attempt internal HTTP call to /api/enrich
   try {
     const origin =
       process.env.NEXT_PUBLIC_APP_URL ||
@@ -145,21 +146,21 @@ async function handleGetSceneInstruction(
     if (res.ok) {
       const data = await res.json();
       return {
-        enrichedPrompt: data.enriched_prompt || data.enrichedPrompt,
+        enrichedPrompt: data.enriched_prompt || data.enrichedPrompt || "",
         behaviorBreakdown: data.behaviorBreakdown || {
-          facial_expression: data.facial_expression,
-          body_language: data.body_language,
-          emotional_state: data.emotional_state,
-          dialogue_direction: data.dialogue_direction,
+          facial_expression: data.facial_expression || "",
+          body_language: data.body_language || "",
+          emotional_state: data.emotional_state || "",
+          dialogue_direction: data.dialogue_direction || "",
         },
       };
     }
   } catch (err) {
-    console.warn("Direct HTTP fetch to /api/enrich failed, invoking internal logic:", err);
+    console.warn("Internal fetch to /api/enrich failed, falling back to direct function invocation:", err);
   }
 
   // Fallback to direct library execution if self-HTTP request cannot resolve
-  const result = await enrichSceneWithNvidia({
+  const result = await enrichWithNvidia({
     scene,
     characterId: "cairo-001",
     accountKey,
@@ -171,7 +172,9 @@ async function handleGetSceneInstruction(
   };
 }
 
-// Tool 3 Implementation: get_character_status
+// Tool 3: get_character_status
+// Returns list of active characters on this account
+// For now: returns Cairo with 500 credits, expires in 30 days
 function handleGetCharacterStatus(args: { accountKey?: string }) {
   const accountKey = resolveAccountKey(args.accountKey);
 
@@ -180,6 +183,7 @@ function handleGetCharacterStatus(args: { accountKey?: string }) {
       characters: [
         {
           name: "Cairo",
+          characterName: "Cairo",
           status: "active",
           creditsRemaining: 500,
           expiresIn: "30 days",
@@ -243,7 +247,6 @@ export async function POST(request: NextRequest) {
 
   const { jsonrpc, id, method, params } = body;
 
-  // Handle MCP JSON-RPC methods
   try {
     switch (method) {
       // 1. Handshake / Initialize
@@ -288,7 +291,7 @@ export async function POST(request: NextRequest) {
           { headers: getCorsHeaders() }
         );
 
-      // 3. Tool Execution
+      // 3. Tool Execution via tools/call
       case "tools/call": {
         const toolName = params?.name;
         const toolArgs = params?.arguments || params?.input || params || {};
@@ -315,7 +318,6 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Return standard MCP JSON-RPC format with content text block
         return NextResponse.json(
           {
             jsonrpc: "2.0",
@@ -338,7 +340,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Direct method shortcuts (e.g. if invoked directly by name)
+      // Direct method shortcuts
       case "verify_character": {
         const out = handleVerifyCharacter(params || {});
         return NextResponse.json(

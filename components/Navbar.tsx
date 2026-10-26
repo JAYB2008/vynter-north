@@ -10,7 +10,7 @@ export function Navbar() {
   const navLinks = [
     { href: "/characters", label: "Characters", icon: Users },
     { href: "/studio", label: "Video Studio", icon: Film },
-    { href: "/demo", label: "Test Intelligence", icon: Sparkles },
+    { href: "/test", label: "Test Intelligence", icon: Sparkles },
     { href: "/connect", label: "MCP Connect", icon: Bot },
     { href: "/history", label: "History", icon: History },
   ];
