@@ -1,71 +1,216 @@
--- Vynter North POC — Supabase Schema
--- Run this in the Supabase SQL Editor
+-- Vynter North Production Schema
+-- Run this in the Supabase SQL editor to create all required tables & policies
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 1. Characters Table
+-- Users table (extends Supabase auth.users)
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID REFERENCES auth.users(id) PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('creator', 'studio')),
+  bio TEXT,
+  avatar_url TEXT,
+  account_key TEXT UNIQUE DEFAULT 
+    'vn-' || encode(gen_random_bytes(16), 'hex'),
+  verified BOOLEAN DEFAULT false,
+  total_earnings DECIMAL(10,2) DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Characters table
 CREATE TABLE IF NOT EXISTS characters (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- 2. Character Skills Table
-CREATE TABLE IF NOT EXISTS character_skills (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  character_id UUID REFERENCES characters(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY 
+    DEFAULT 'CVR-' || TO_CHAR(NOW(), 'YYYY') || '-' || 
+    LPAD(FLOOR(RANDOM() * 99999)::TEXT, 5, '0'),
+  owner_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  status TEXT DEFAULT 'active' 
+    CHECK (status IN ('active', 'paused', 'sold', 'deleted')),
   
-  -- Physical Style
-  resting_expression TEXT,
-  movement_style TEXT,
+  -- Visual identity
+  avatar_url TEXT,
+  reference_images TEXT[], -- array of image URLs
+  
+  -- Basic info
+  vibe_summary TEXT NOT NULL,
+  description TEXT NOT NULL,
+  
+  -- Full character sheet (the skill profile)
+  -- General personality
+  full_character_sheet TEXT NOT NULL,
+    -- minimum 1000 characters, this is the main skill document
+  
+  -- Specific situation responses (structured fields)
+  behavior_dangerous TEXT NOT NULL,
+    -- How does this character behave in dangerous situations?
+  behavior_funny TEXT NOT NULL,
+    -- How does this character behave in funny/comedic situations?
+  behavior_emotional TEXT NOT NULL,
+    -- How does this character behave in emotional/sad situations?
+  behavior_social TEXT NOT NULL,
+    -- How does this character behave in social/crowd situations?
+  behavior_conflict TEXT NOT NULL,
+    -- How does this character behave in conflict/arguments?
+  
+  -- Appearance and movement
+  physical_appearance TEXT NOT NULL,
+    -- Describe their look, build, distinctive features
+  movement_style TEXT NOT NULL,
+    -- How do they move, walk, carry themselves?
   signature_gesture TEXT,
-  stress_reaction TEXT,
+    -- One physical habit they always do
   
-  -- Personality
-  core_trait TEXT,
+  -- Personality traits
+  core_trait TEXT NOT NULL,
   secondary_trait TEXT,
-  handles_danger TEXT,
-  what_makes_laugh TEXT,
-  what_makes_angry TEXT,
   hidden_quality TEXT,
+    -- Something they hide from others
+  greatest_fear TEXT,
   
-  -- Dialogue Style
-  speaking_pace TEXT,
-  language_mixing TEXT,
-  humor_style TEXT,
-  catchphrase TEXT,
+  -- Voice and speech (text description, no audio model yet)
+  voice_description TEXT NOT NULL,
+    -- Describe how they sound: pitch, tone, pace, accent
+  speaking_style TEXT NOT NULL,
+    -- Fast/slow, formal/casual, verbose/minimal
+  verbal_habits TEXT,
+    -- Catchphrases, verbal tics, language patterns
   
-  -- Summary
-  vibe_summary TEXT,
+  -- Voice sample analysis (optional)
+  voice_sample_url TEXT,
+    -- URL to uploaded voice sample
+  voice_analyzed_description TEXT,
+    -- AI-generated description from analyzing voice sample
   
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  -- Marketplace settings
+  genres TEXT[] NOT NULL DEFAULT '{}',
+  allowed_uses TEXT[] DEFAULT ARRAY[
+    'film', 'advertising', 'social_content', 'gaming'
+  ],
+  
+  -- Pricing
+  rental_price_daily DECIMAL(10,2) DEFAULT 0,
+  rental_price_weekly DECIMAL(10,2) DEFAULT 0,
+  rental_price_monthly DECIMAL(10,2) DEFAULT 0,
+  purchase_price DECIMAL(10,2),
+    -- NULL means not for sale, only for rent
+  is_free BOOLEAN DEFAULT false,
+    -- If true, anyone can use without payment
+  
+  -- Stats (calculated)
+  fame_score INTEGER DEFAULT 0,
+  total_rentals INTEGER DEFAULT 0,
+  total_views INTEGER DEFAULT 0,
+  
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Generation Logs Table
+-- Character rentals
+CREATE TABLE IF NOT EXISTS rentals (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  character_id TEXT REFERENCES characters(id),
+  studio_id UUID REFERENCES profiles(id),
+  
+  rental_type TEXT CHECK (rental_type IN (
+    'daily', 'weekly', 'monthly', 'purchase', 'free'
+  )),
+  status TEXT DEFAULT 'active' CHECK (status IN (
+    'active', 'expired', 'cancelled'
+  )),
+  
+  -- MCP access
+  mcp_token TEXT UNIQUE DEFAULT 
+    'VN-' || encode(gen_random_bytes(24), 'hex'),
+  
+  -- Credits and usage
+  generation_credits INTEGER DEFAULT 100,
+  credits_used INTEGER DEFAULT 0,
+  
+  price_paid DECIMAL(10,2) DEFAULT 0,
+  starts_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,
+    -- NULL for purchases (permanent)
+  
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Skills marketplace (separate from character skills)
+-- Creators can sell skill templates/prompts
+CREATE TABLE IF NOT EXISTS skill_templates (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  creator_id UUID REFERENCES profiles(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+    -- 'personality', 'movement', 'dialogue', 'genre', 'full_template'
+  content TEXT NOT NULL,
+    -- The actual skill/prompt template
+  price DECIMAL(10,2) DEFAULT 0,
+  is_free BOOLEAN DEFAULT true,
+  purchases INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Reviews on characters
+CREATE TABLE IF NOT EXISTS reviews (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  character_id TEXT REFERENCES characters(id),
+  reviewer_id UUID REFERENCES profiles(id),
+  rental_id UUID REFERENCES rentals(id),
+  rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+  review_text TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(rental_id, reviewer_id)
+);
+
+-- Generation logs (track usage)
 CREATE TABLE IF NOT EXISTS generation_logs (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  character_id UUID REFERENCES characters(id),
-  original_prompt TEXT NOT NULL,
-  enriched_prompt TEXT NOT NULL,
-  video_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  rental_id UUID REFERENCES rentals(id),
+  character_id TEXT REFERENCES characters(id),
+  original_prompt TEXT,
+  enriched_prompt TEXT,
+  original_word_count INTEGER,
+  enriched_word_count INTEGER,
+  status TEXT DEFAULT 'kept' 
+    CHECK (status IN ('preview', 'kept', 'discarded')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Optional: Enable Row Level Security (RLS)
+-- Enable Row Level Security
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE characters ENABLE ROW LEVEL SECURITY;
-ALTER TABLE character_skills ENABLE ROW LEVEL SECURITY;
-ALTER TABLE generation_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rentals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE skill_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 
--- Allow public read & write for the POC (can be restricted for production)
-CREATE POLICY "Public read characters" ON characters FOR SELECT USING (true);
-CREATE POLICY "Public insert characters" ON characters FOR INSERT WITH CHECK (true);
-CREATE POLICY "Public update characters" ON characters FOR UPDATE USING (true);
+-- Drop existing policies if needed
+DROP POLICY IF EXISTS "Public profiles visible" ON profiles;
+DROP POLICY IF EXISTS "Users manage own profile" ON profiles;
+DROP POLICY IF EXISTS "Active characters visible" ON characters;
+DROP POLICY IF EXISTS "Owners manage characters" ON characters;
+DROP POLICY IF EXISTS "Studios see own rentals" ON rentals;
+DROP POLICY IF EXISTS "Studios create rentals" ON rentals;
+DROP POLICY IF EXISTS "Skill templates public" ON skill_templates;
+DROP POLICY IF EXISTS "Creators manage templates" ON skill_templates;
 
-CREATE POLICY "Public read character_skills" ON character_skills FOR SELECT USING (true);
-CREATE POLICY "Public insert character_skills" ON character_skills FOR INSERT WITH CHECK (true);
-CREATE POLICY "Public update character_skills" ON character_skills FOR UPDATE USING (true);
+-- RLS Policies
+CREATE POLICY "Public profiles visible" ON profiles 
+  FOR SELECT USING (true);
+CREATE POLICY "Users manage own profile" ON profiles 
+  FOR ALL USING (auth.uid() = id);
 
-CREATE POLICY "Public read generation_logs" ON generation_logs FOR SELECT USING (true);
-CREATE POLICY "Public insert generation_logs" ON generation_logs FOR INSERT WITH CHECK (true);
-CREATE POLICY "Public update generation_logs" ON generation_logs FOR UPDATE USING (true);
+CREATE POLICY "Active characters visible" ON characters 
+  FOR SELECT USING (status != 'deleted');
+CREATE POLICY "Owners manage characters" ON characters 
+  FOR ALL USING (auth.uid() = owner_id);
+
+CREATE POLICY "Studios see own rentals" ON rentals 
+  FOR SELECT USING (auth.uid() = studio_id);
+CREATE POLICY "Studios create rentals" ON rentals 
+  FOR INSERT WITH CHECK (auth.uid() = studio_id);
+
+CREATE POLICY "Skill templates public" ON skill_templates 
+  FOR SELECT USING (true);
+CREATE POLICY "Creators manage templates" ON skill_templates 
+  FOR ALL USING (auth.uid() = creator_id);

@@ -1,23 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
-import { Navbar } from "@/components/Navbar";
+import { Navbar } from "@/components/layout/Navbar";
+import { Footer } from "@/components/layout/Footer";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { AuthProvider } from "@/lib/auth-context";
 import { Toaster } from "sonner";
 import { Suspense } from "react";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Vynter North — Character Intelligence POC",
-  description: "Proof-of-Concept for the AI Character Intelligence Layer & Talent Registry",
+  title: "Vynter North — The Character Intelligence Layer for AI Entertainment",
+  description:
+    "AI character identity registry and MCP intelligence layer. Register your AI characters with deep personality profiles. Rent or deploy them into Claude, ChatGPT, Runway, and Kling with automatic behavioral enrichment.",
 };
 
 export default function RootLayout({
@@ -26,27 +26,35 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full`}
-    >
-      <body className="min-h-full flex flex-col bg-[#F8FAFC] text-[#0F172A] antialiased selection:bg-[#7C3AED] selection:text-white">
-        <Suspense fallback={<div className="h-16 border-b border-slate-200 bg-white" />}>
-          <Navbar />
-        </Suspense>
-        <main className="flex-1 flex flex-col">{children}</main>
-        <Toaster
-          position="top-right"
-          theme="light"
-          toastOptions={{
-            style: {
-              background: "#FFFFFF",
-              border: "1px solid #E2E8F0",
-              color: "#0F172A",
-              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.08)",
-            },
-          }}
-        />
+    <html lang="en" suppressHydrationWarning className={inter.variable}>
+      <body className="min-h-screen flex flex-col font-sans antialiased">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          <AuthProvider>
+            <Suspense
+              fallback={
+                <div className="h-16 border-b border-app bg-card-app" />
+              }
+            >
+              <Navbar />
+            </Suspense>
+
+            <main className="flex-1 flex flex-col">{children}</main>
+
+            <Footer />
+
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                className: "border border-app bg-card-app text-primary-app",
+              }}
+            />
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

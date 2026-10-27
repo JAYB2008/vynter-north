@@ -1,200 +1,130 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getProfileByAccountKey,
+  getRentalByMcpToken,
+  getCharacterById,
+  getCharacterByName,
+  incrementRentalCreditsUsed,
+  logGeneration,
+} from "@/lib/db";
+import { enrichScene } from "@/lib/enrichment";
 
-export const VALID_ACCOUNT_KEY = "vn-test-key-001";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
-export const CAIRO_SKILLS = `Character Name: Cairo
-Core Trait: Overconfident but genuinely skilled
-Movement: Sideways lean, plants feet wide, very deliberate stops
-Stress Reaction: Gets louder and more performative when scared
-Hidden Quality: Goes completely quiet and competent when someone else is in danger
-Speaking Pace: Fast when performing, slow when serious
-Voice: Smooth but cracks under real stress`;
-
-export const SYSTEM_PROMPT = `You are a Character Intelligence Layer for an AI video 
-platform. Your job is to read a scene description and a 
-character's skill profile, then rewrite the scene as a 
-detailed behavioral prompt for a video generator.
-
-RULES:
-1. Never break character. The skill profile is absolute.
-2. Add specific facial expressions, body language, emotional 
-   state, and dialogue direction based on the character's traits.
-3. If the scene creates tension with the personality, show 
-   how that tension manifests — never ignore either.
-4. Output ONLY a JSON object with these fields:
-   {
-     'facial_expression': string,
-     'body_language': string, 
-     'emotional_state': string,
-     'dialogue_direction': string,
-     'enriched_prompt': string
-   }
-5. The enriched_prompt must read like natural film direction.
-6. No preamble. No explanation. JSON only.`;
-
-export function cleanAndParseJSON(raw: string): Record<string, string> {
-  let cleaned = raw.trim();
-
-  // Strip markdown code fences if wrapped in ```json ... ``` or ``` ... ```
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/```\s*$/, "")
-      .trim();
-  }
-
+export async function POST(req: NextRequest) {
   try {
-    return JSON.parse(cleaned);
-  } catch {
-    // If extra text surrounds the JSON block, slice between the first { and last }
-    const firstBrace = cleaned.indexOf("{");
-    const lastBrace = cleaned.lastIndexOf("}");
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      const extracted = cleaned.slice(firstBrace, lastBrace + 1);
-      return JSON.parse(extracted);
-    }
-    throw new Error(`Model returned non-JSON output: ${raw.slice(0, 150)}...`);
-  }
-}
+    const body = await req.json().catch(() => ({}));
+    const { scene, characterId, accountKey, mcpToken } = body;
 
-/**
- * Core enrichment function that calls NVIDIA NIM API (meta/llama-3.1-8b-instruct)
- */
-export async function enrichWithNvidia({
-  scene,
-  accountKey,
-}: {
-  scene: string;
-  characterId?: string;
-  accountKey: string;
-}) {
-  // Validate accountKey
-  if (!accountKey || accountKey.trim() !== VALID_ACCOUNT_KEY) {
-    throw new Error("Invalid or unauthorized accountKey. Expected registered test key 'vn-test-key-001'.");
-  }
-
-  // Validate scene
-  if (!scene || typeof scene !== "string" || !scene.trim()) {
-    throw new Error("Field 'scene' is required and must be a non-empty string.");
-  }
-
-  const apiKey = process.env.NVIDIA_API_KEY;
-  if (!apiKey || apiKey.trim() === "") {
-    throw new Error(
-      "NVIDIA_API_KEY is not configured in environment variables. Please add your NVIDIA API key to .env.local."
-    );
-  }
-
-  const userMessage = `CHARACTER PROFILE:\n${CAIRO_SKILLS}\n\nSCENE:\n${scene.trim()}`;
-
-  const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey.trim()}`,
-    },
-    body: JSON.stringify({
-      model: "meta/llama-3.1-8b-instruct",
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: userMessage,
-        },
-      ],
-      temperature: 0.2,
-      top_p: 0.7,
-      max_tokens: 1024,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    let errorDetail = errorBody;
-    try {
-      const parsed = JSON.parse(errorBody);
-      errorDetail = parsed.error?.message || parsed.message || errorBody;
-    } catch {
-      // Keep raw body
-    }
-    throw new Error(`NVIDIA NIM API Error (${response.status}): ${errorDetail}`);
-  }
-
-  const data = await response.json();
-  const rawContent = data.choices?.[0]?.message?.content;
-  if (!rawContent) {
-    throw new Error("NVIDIA NIM returned an empty response.");
-  }
-
-  const parsed = cleanAndParseJSON(rawContent);
-
-  return {
-    facial_expression: parsed.facial_expression || "",
-    body_language: parsed.body_language || "",
-    emotional_state: parsed.emotional_state || "",
-    dialogue_direction: parsed.dialogue_direction || "",
-    enriched_prompt: parsed.enriched_prompt || "",
-    // Convenience fields
-    enrichedPrompt: parsed.enriched_prompt || "",
-    behaviorBreakdown: {
-      facial_expression: parsed.facial_expression || "",
-      body_language: parsed.body_language || "",
-      emotional_state: parsed.emotional_state || "",
-      dialogue_direction: parsed.dialogue_direction || "",
-    },
-  };
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json().catch(() => ({}));
-    const { scene, characterId, accountKey } = body as {
-      scene?: string;
-      characterId?: string;
-      accountKey?: string;
-    };
-
-    // 1. Validate accountKey matches registered account ("vn-test-key-001")
-    if (!accountKey || accountKey.trim() !== VALID_ACCOUNT_KEY) {
-      return NextResponse.json(
-        {
-          error: "Unauthorized accountKey. Please provide a valid account key (e.g. 'vn-test-key-001').",
-        },
-        { status: 401 }
-      );
-    }
-
-    // 2. Validate scene
     if (!scene || typeof scene !== "string" || !scene.trim()) {
       return NextResponse.json(
-        { error: "Field 'scene' is required and must be a non-empty string." },
+        { error: "Scene description is required." },
         { status: 400 }
       );
     }
 
-    // 3. Call NVIDIA NIM API
-    const result = await enrichWithNvidia({
-      scene: scene.trim(),
-      characterId,
-      accountKey: accountKey.trim(),
+    let authenticatedProfile = null;
+    let activeRental = null;
+
+    // 1. Validate authorization
+    if (mcpToken) {
+      activeRental = await getRentalByMcpToken(mcpToken);
+      if (!activeRental) {
+        return NextResponse.json(
+          { error: "Invalid or expired MCP rental token." },
+          { status: 401 }
+        );
+      }
+      if (activeRental.status !== "active") {
+        return NextResponse.json(
+          { error: "Rental is no longer active." },
+          { status: 403 }
+        );
+      }
+      if (
+        activeRental.expires_at &&
+        new Date(activeRental.expires_at).getTime() < Date.now()
+      ) {
+        return NextResponse.json(
+          { error: "Rental period has expired. Please renew your rental." },
+          { status: 403 }
+        );
+      }
+      const creditsLeft =
+        activeRental.generation_credits - activeRental.credits_used;
+      if (creditsLeft <= 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Generation credit balance exhausted. Please add credits or upgrade your rental tier.",
+            creditsRemaining: 0,
+          },
+          { status: 402 }
+        );
+      }
+    } else if (accountKey) {
+      authenticatedProfile = await getProfileByAccountKey(accountKey);
+      if (!authenticatedProfile && accountKey !== "vn-test-key-001") {
+        return NextResponse.json(
+          { error: "Invalid Vynter North account key." },
+          { status: 401 }
+        );
+      }
+    }
+    // Note: If called from public demo without auth key, we allow trial enrichment!
+
+    // 2. Find character
+    let character = null;
+    if (activeRental?.character) {
+      character = activeRental.character;
+    } else if (characterId) {
+      character =
+        (await getCharacterById(characterId)) ||
+        (await getCharacterByName(characterId));
+    } else {
+      // Default to Cairo if unspecified
+      character = await getCharacterByName("Cairo");
+    }
+
+    if (!character) {
+      return NextResponse.json(
+        { error: `Character not found: ${characterId || "Cairo"}` },
+        { status: 404 }
+      );
+    }
+
+    // 3. Perform Character Enrichment
+    const enrichment = await enrichScene({ character, scene });
+
+    // 4. Update usage and log if rental token exists
+    if (activeRental) {
+      await incrementRentalCreditsUsed(activeRental.id, 1);
+      await logGeneration({
+        rental_id: activeRental.id,
+        character_id: character.id,
+        original_prompt: scene,
+        enriched_prompt: enrichment.enriched_prompt,
+        original_word_count: enrichment.word_count.original,
+        enriched_word_count: enrichment.word_count.enriched,
+        status: "kept",
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      character: enrichment.character,
+      original_prompt: enrichment.original_prompt,
+      enriched_prompt: enrichment.enriched_prompt,
+      behavior_breakdown: enrichment.behavior_breakdown,
+      word_count: enrichment.word_count,
+      model_used: enrichment.model_used,
     });
-
-    // Return the parsed JSON response
-    return NextResponse.json(result);
-  } catch (error: unknown) {
-    console.error("Error in /api/enrich:", error);
-    const message =
-      error instanceof Error ? error.message : "Character enrichment failed";
-    const status = message.includes("Unauthorized") ? 401 : 500;
-
+  } catch (error: any) {
+    console.error("Enrichment API error:", error);
     return NextResponse.json(
-      {
-        error: message,
-      },
-      { status }
+      { error: error.message || "Failed to enrich scene." },
+      { status: 500 }
     );
   }
 }

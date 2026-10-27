@@ -1,227 +1,388 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getCharacterById } from "@/lib/db";
+import { useParams, notFound } from "next/navigation";
 import {
-  Sparkles,
-  Film,
   ArrowLeft,
+  Sparkles,
+  ShieldCheck,
+  Check,
+  Copy,
   Activity,
-  Smile,
+  Heart,
   MessageSquare,
-  Quote,
+  Eye,
+  CheckCircle2,
 } from "lucide-react";
+import { toast } from "sonner";
+import { findCharacter, CHARACTERS } from "@/lib/characters";
 
-export const dynamic = "force-dynamic";
+export default function CharacterProfilePage() {
+  const params = useParams();
+  const rawId = (params?.id as string) || "";
+  const character = findCharacter(rawId) || CHARACTERS[0];
 
-export default async function CharacterDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const character = await getCharacterById(id);
+  const [activeTab, setActiveTab] = useState<"overview" | "personality" | "demo">("overview");
 
-  if (!character) {
-    notFound();
-  }
+  // Embedded Demo state
+  const [demoScene, setDemoScene] = useState<string>(character.demo_scene);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [enrichedResult, setEnrichedResult] = useState<any>(null);
+  const [copied, setCopied] = useState<boolean>(false);
 
-  const s = character.skills;
-  const createdDate = new Date(character.created_at).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const handleRunDemo = async () => {
+    if (!demoScene.trim()) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scene: demoScene.trim(),
+          characterId: character.id,
+          accountKey: "vn-test-key-001",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Enrichment failed");
+      setEnrichedResult(data);
+      toast.success("Intelligence enrichment complete!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to run enrichment");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const copyResult = () => {
+    if (!enrichedResult?.enriched_prompt) return;
+    navigator.clipboard.writeText(enrichedResult.enriched_prompt);
+    setCopied(true);
+    toast.success("Prompt copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <div className="max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Back button */}
       <Link
         href="/characters"
-        className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-6"
+        className="inline-flex items-center gap-2 text-xs font-semibold text-[#9CA3AF] hover:text-[#F9FAFB] transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back to all characters
+        <span>Back to Character Registry</span>
       </Link>
 
-      {/* Header Profile Card */}
-      <div className="p-8 rounded-3xl bg-gradient-to-b from-white via-white to-purple-50/30 border border-slate-200 mb-8 relative overflow-hidden shadow-sm">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-purple-200/30 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
-
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-50 text-[#7C3AED] border border-purple-200">
-                {s?.core_trait || "Dynamic"}
-              </span>
-              <span className="text-xs text-slate-500">Registered {createdDate}</span>
-            </div>
-
-            <h1 className="text-4xl font-black tracking-tight text-slate-900 mb-3">
-              {character.name}
-            </h1>
-
-            <p className="text-sm sm:text-base text-slate-600 max-w-2xl leading-relaxed">
-              {character.description || s?.vibe_summary || "Character registered with verified psychological behavioral architecture."}
-            </p>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* ═══════════════════════════════════════════════════════════
+            LEFT SIDE (5 cols)
+            ═══════════════════════════════════════════════════════════ */}
+        <div className="lg:col-span-5 p-8 rounded-3xl bg-[#1A1A2E] border border-[#2D2D4E] space-y-6 shadow-2xl relative overflow-hidden">
+          {/* Large Avatar Placeholder */}
+          <div
+            className={`w-28 h-28 sm:w-32 sm:h-32 rounded-3xl bg-gradient-to-tr ${
+              character.avatar_gradient || "from-purple-600 to-indigo-800"
+            } flex items-center justify-center text-white font-black text-4xl shadow-xl border border-white/10 mx-auto sm:mx-0`}
+          >
+            {character.avatar_initials || character.name.slice(0, 2).toUpperCase()}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row md:flex-col gap-3 min-w-[200px]">
-            <Link
-              href={`/studio?character=${character.id}`}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm shadow-md shadow-[#7C3AED]/20 transition-all text-center"
-            >
-              <Film className="w-4 h-4" />
-              Go to Video Studio
-            </Link>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h1 className="text-3xl sm:text-4xl font-black text-[#F9FAFB] tracking-tight">
+                {character.name}
+              </h1>
+              <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-md bg-[#0F0F1A] border border-[#2D2D4E] text-[#A78BFA]">
+                {character.id}
+              </span>
+            </div>
 
+            <p className="text-sm text-[#A78BFA] italic font-medium">
+              &ldquo;{character.vibe_summary}&rdquo;
+            </p>
+
+            <div className="text-xs text-[#9CA3AF]">
+              Registered: <span className="text-[#F9FAFB] font-medium">{character.registered_date || "2025"}</span>
+            </div>
+          </div>
+
+          {/* Active Status Badge */}
+          <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center gap-2.5 text-xs text-emerald-300 font-semibold">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Active — Available for Rental</span>
+          </div>
+
+          {/* Genre Tags */}
+          <div className="space-y-2 pt-2 border-t border-[#2D2D4E]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#9CA3AF] block">
+              Allowed Genres
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {character.allowed_genres.map((g) => (
+                <span
+                  key={g}
+                  className="text-xs font-medium px-3 py-1 rounded-full bg-[#0F0F1A] border border-[#2D2D4E] text-[#F9FAFB]"
+                >
+                  {g}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Bottom Callout */}
+          <div className="pt-4 border-t border-[#2D2D4E]">
             <Link
               href={`/demo?character=${character.id}`}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-sm border border-slate-200 transition-all text-center"
+              className="w-full py-3.5 px-5 rounded-2xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-bold text-sm shadow-lg shadow-[#7C3AED]/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-[#7C3AED]" />
-              Test This Character
+              <Sparkles className="w-4 h-4" />
+              <span>Try This Character in Studio</span>
             </Link>
           </div>
         </div>
 
-        {/* Vibe Summary Banner */}
-        {s?.vibe_summary && (
-          <div className="mt-6 pt-6 border-t border-slate-100 flex items-start gap-3">
-            <Quote className="w-5 h-5 text-[#7C3AED] shrink-0 mt-0.5" />
-            <p className="text-xs sm:text-sm text-slate-700 italic">
-              &ldquo;{s.vibe_summary}&rdquo;
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Skills Sections */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Physical Style */}
-        <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-100 text-slate-900">
-            <Activity className="w-4 h-4 text-[#7C3AED]" />
-            <h2 className="font-bold text-sm uppercase tracking-wider text-slate-800">
-              Physical Style
-            </h2>
-          </div>
-
-          <div className="space-y-4 text-xs">
-            <div>
-              <span className="text-slate-500 block mb-1">Resting Expression</span>
-              <p className="font-semibold text-slate-900 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.resting_expression || "Neutral"}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-slate-500 block mb-1">Movement Style</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.movement_style || "Unspecified"}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-slate-500 block mb-1">Signature Gesture</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.signature_gesture || "Unspecified"}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-slate-500 block mb-1">Stress Reaction</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.stress_reaction || "Unspecified"}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Personality Profile */}
-        <div className="p-6 rounded-2xl bg-white border border-purple-200 shadow-sm">
-          <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-purple-100 text-[#7C3AED]">
-            <Smile className="w-4 h-4 text-[#7C3AED]" />
-            <h2 className="font-bold text-sm uppercase tracking-wider text-[#7C3AED]">
-              Personality Profile
-            </h2>
+        {/* ═══════════════════════════════════════════════════════════
+            RIGHT SIDE TABS (7 cols)
+            ═══════════════════════════════════════════════════════════ */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Tab Navigation */}
+          <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-[#1A1A2E] border border-[#2D2D4E]">
+            <button
+              type="button"
+              onClick={() => setActiveTab("overview")}
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                activeTab === "overview"
+                  ? "bg-[#7C3AED] text-white shadow-md shadow-[#7C3AED]/25"
+                  : "text-[#9CA3AF] hover:text-[#F9FAFB]"
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("personality")}
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                activeTab === "personality"
+                  ? "bg-[#7C3AED] text-white shadow-md shadow-[#7C3AED]/25"
+                  : "text-[#9CA3AF] hover:text-[#F9FAFB]"
+              }`}
+            >
+              Personality Skills
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("demo")}
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                activeTab === "demo"
+                  ? "bg-[#7C3AED] text-white shadow-md shadow-[#7C3AED]/25"
+                  : "text-[#9CA3AF] hover:text-[#F9FAFB]"
+              }`}
+            >
+              Embedded Demo
+            </button>
           </div>
 
-          <div className="space-y-4 text-xs">
-            <div>
-              <span className="text-slate-500 block mb-1">Core & Secondary Trait</span>
-              <p className="font-semibold text-slate-900 bg-purple-50/50 p-2.5 rounded-lg border border-purple-100">
-                {s?.core_trait || "Dynamic"}{s?.secondary_trait ? ` • ${s.secondary_trait}` : ""}
-              </p>
-            </div>
+          {/* TAB 1: OVERVIEW */}
+          {activeTab === "overview" && (
+            <div className="p-8 rounded-3xl bg-[#1A1A2E] border border-[#2D2D4E] space-y-6 shadow-xl animate-fadeIn">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#A78BFA] mb-2">
+                  Core Trait Definition
+                </h3>
+                <p className="text-base text-[#F9FAFB] leading-relaxed font-medium">
+                  {character.core_trait}
+                </p>
+              </div>
 
-            <div>
-              <span className="text-slate-500 block mb-1">Handling Danger</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.handles_danger || "Unspecified"}
-              </p>
-            </div>
+              <div className="p-5 rounded-2xl bg-[#0F0F1A] border border-[#2D2D4E] space-y-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] block">
+                  Reference Demo Scene
+                </span>
+                <p className="text-sm text-[#F9FAFB] leading-relaxed italic">
+                  &ldquo;{character.demo_scene}&rdquo;
+                </p>
+              </div>
 
-            <div>
-              <span className="text-slate-500 block mb-1">What Makes Them Laugh</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.what_makes_laugh || "Unspecified"}
-              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div className="p-4 rounded-2xl bg-[#0F0F1A] border border-[#2D2D4E]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] block mb-1">
+                    Movement Habit
+                  </span>
+                  <p className="text-xs text-[#F9FAFB] leading-relaxed line-clamp-3">
+                    {character.movement}
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#0F0F1A] border border-[#2D2D4E]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] block mb-1">
+                    Stress Behavior
+                  </span>
+                  <p className="text-xs text-[#F9FAFB] leading-relaxed line-clamp-3">
+                    {character.stress_reaction}
+                  </p>
+                </div>
+              </div>
             </div>
+          )}
 
-            <div>
-              <span className="text-slate-500 block mb-1">What Makes Them Angry</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.what_makes_angry || "Unspecified"}
-              </p>
+          {/* TAB 2: PERSONALITY (PHYSICAL, PERSONALITY, DIALOGUE) */}
+          {activeTab === "personality" && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Physical Style Section */}
+              <div className="p-6 rounded-3xl bg-[#1A1A2E] border-l-4 border-l-blue-500 border border-[#2D2D4E] space-y-3">
+                <div className="flex items-center gap-2 text-blue-400">
+                  <Activity className="w-4 h-4" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider">
+                    Physical Style
+                  </h3>
+                </div>
+                <div>
+                  <span className="text-xs text-[#9CA3AF] block mb-1">Movement & Spatial Stance:</span>
+                  <p className="text-sm text-[#F9FAFB] leading-relaxed">
+                    {character.movement}
+                  </p>
+                </div>
+              </div>
+
+              {/* Personality Section */}
+              <div className="p-6 rounded-3xl bg-[#1A1A2E] border-l-4 border-l-[#7C3AED] border border-[#2D2D4E] space-y-4">
+                <div className="flex items-center gap-2 text-[#A78BFA]">
+                  <Heart className="w-4 h-4" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider">
+                    Personality Architecture
+                  </h3>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-xs text-[#9CA3AF] block mb-1">Core Trait:</span>
+                    <p className="text-sm text-[#F9FAFB] leading-relaxed">
+                      {character.core_trait}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-[#9CA3AF] block mb-1">Stress Reaction:</span>
+                    <p className="text-sm text-[#F9FAFB] leading-relaxed">
+                      {character.stress_reaction}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-[#9CA3AF] block mb-1">Hidden Quality:</span>
+                    <p className="text-sm text-[#F9FAFB] leading-relaxed">
+                      {character.hidden_quality}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dialogue Style Section */}
+              <div className="p-6 rounded-3xl bg-[#1A1A2E] border-l-4 border-l-amber-500 border border-[#2D2D4E] space-y-3">
+                <div className="flex items-center gap-2 text-amber-400">
+                  <MessageSquare className="w-4 h-4" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider">
+                    Dialogue Style
+                  </h3>
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-xs text-[#9CA3AF] block mb-1">Speaking Pace & Vocal Delivery:</span>
+                    <p className="text-sm text-[#F9FAFB] leading-relaxed">
+                      {character.speaking_pace}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-[#9CA3AF] block mb-1">Verbal Habit:</span>
+                    <p className="text-sm text-[#F9FAFB] leading-relaxed">
+                      {character.verbal_habit}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
+          )}
 
-            <div>
-              <span className="text-slate-500 block mb-1">Hidden Quality</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.hidden_quality || "Unspecified"}
-              </p>
+          {/* TAB 3: EMBEDDED DEMO */}
+          {activeTab === "demo" && (
+            <div className="p-7 rounded-3xl bg-[#1A1A2E] border border-[#2D2D4E] space-y-5 animate-fadeIn">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-[#A78BFA] flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#7C3AED]" />
+                  <span>Test {character.name} Live</span>
+                </h3>
+                <span className="text-xs text-[#9CA3AF]">
+                  Uses account key <code className="text-[#A78BFA]">vn-test-key-001</code>
+                </span>
+              </div>
+
+              <textarea
+                rows={4}
+                value={demoScene}
+                onChange={(e) => setDemoScene(e.target.value)}
+                placeholder="Describe what happens in the scene..."
+                className="w-full bg-[#0F0F1A] border border-[#2D2D4E] rounded-2xl p-4 text-sm text-[#F9FAFB] focus:outline-none focus:border-[#7C3AED] resize-none"
+              />
+
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={handleRunDemo}
+                className="w-full py-3.5 px-6 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white font-bold text-sm shadow-lg shadow-[#7C3AED]/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Enriching Scene with {character.name}...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Run Live Enrichment</span>
+                  </>
+                )}
+              </button>
+
+              {enrichedResult && (
+                <div className="space-y-4 pt-4 border-t border-[#2D2D4E]">
+                  <div className="p-5 rounded-2xl bg-[#0F0F1A] border border-emerald-500/40 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                        Enriched Cinematic Prompt
+                      </span>
+                      <button
+                        type="button"
+                        onClick={copyResult}
+                        className="px-2.5 py-1 rounded-md bg-[#1A1A2E] text-xs text-[#F9FAFB] border border-[#2D2D4E] flex items-center gap-1 cursor-pointer"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span>Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-sm text-[#F9FAFB] leading-relaxed">
+                      {enrichedResult.enriched_prompt}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
+          )}
 
-        {/* Dialogue Style */}
-        <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-slate-100 text-slate-900">
-            <MessageSquare className="w-4 h-4 text-[#7C3AED]" />
-            <h2 className="font-bold text-sm uppercase tracking-wider text-slate-800">
-              Dialogue Style
-            </h2>
-          </div>
-
-          <div className="space-y-4 text-xs">
-            <div>
-              <span className="text-slate-500 block mb-1">Speaking Pace</span>
-              <p className="font-semibold text-slate-900 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.speaking_pace || "Normal"}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-slate-500 block mb-1">Humor Style</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.humor_style || "Dry/Sarcastic"}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-slate-500 block mb-1">Language Mixing</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                {s?.language_mixing || "None"}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-slate-500 block mb-1">Catchphrase / Habit</span>
-              <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200 italic">
-                &ldquo;{s?.catchphrase || "None defined"}&rdquo;
-              </p>
-            </div>
+          {/* Bottom Global Action */}
+          <div className="pt-2 flex items-center justify-between">
+            <Link
+              href={`/demo?character=${character.id}`}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-bold text-sm shadow-lg shadow-[#7C3AED]/25 transition-all"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Try This Character in Standalone Demo</span>
+            </Link>
           </div>
         </div>
       </div>
