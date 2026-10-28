@@ -3,13 +3,23 @@ export type UserRole = "creator" | "studio";
 export interface Profile {
   id: string;
   display_name: string;
+  username?: string | null;
   role: UserRole;
   bio: string | null;
   avatar_url: string | null;
+  website?: string | null;
+  studio_name?: string | null;
+  studio_verified?: boolean;
+  studio_verification_docs?: string[] | null;
+  studio_type?: string | null;
+  creator_speciality?: string[] | null;
   account_key: string;
-  verified: boolean;
   total_earnings: number;
-  created_at: string;
+  total_spent?: number;
+  onboarding_completed?: boolean;
+  verified?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type CharacterStatus = "active" | "paused" | "sold" | "deleted";
