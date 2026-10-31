@@ -1,32 +1,84 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Sparkles, ArrowRight, Bot, Star, Play, Shield, Users } from "lucide-react";
+import {
+  Sparkles,
+  ArrowRight,
+  Play,
+  ShieldCheck,
+  Bot,
+  Star,
+  Users,
+  Film,
+  Zap,
+} from "lucide-react";
+import { DemoInterface } from "@/components/demo/DemoInterface";
+import { CharacterCard } from "@/components/characters/CharacterCard";
+import { Character } from "@/lib/types";
 
 export default function HomePage() {
+  const words = ["perform", "behave", "react", "feel"];
+  const [wordIndex, setWordIndex] = useState(0);
+  const [characters, setCharacters] = useState<Character[]>([]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWordIndex((prev) => (prev + 1) % words.length);
+    }, 2400);
+    return () => clearInterval(timer);
+  }, [words.length]);
+
+  useEffect(() => {
+    fetch("/api/characters?status=all")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.characters) setCharacters(d.characters.slice(0, 6));
+      })
+      .catch((e) => console.warn(e));
+  }, []);
+
+  const scrollToDemo = () => {
+    const el = document.getElementById("demo-section");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
   return (
     <div className="flex flex-col w-full min-h-[calc(100vh-4rem)]">
-      {/* HERO SECTION */}
-      <section className="relative overflow-hidden py-24 sm:py-32 border-b border-[#1E1E3A] bg-gradient-to-b from-[#14142A] via-[#0F0F1A] to-[#08080F]">
-        {/* Glow orb */}
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-[#7C3AED]/15 blur-[120px] rounded-full pointer-events-none" />
+      {/* ================= HERO SECTION ================= */}
+      <section className="relative overflow-hidden py-20 sm:py-32 border-b border-app bg-gradient-to-b from-[#14142A] via-[#0F0F1A] to-[#08080F]">
+        {/* Subtle Purple Gradient Mesh */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] bg-[#7C3AED]/15 blur-[140px] rounded-full pointer-events-none" />
+        <div className="absolute bottom-0 right-10 w-[400px] h-[300px] bg-[#A78BFA]/10 blur-[120px] rounded-full pointer-events-none" />
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10 flex flex-col items-center gap-6">
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#7C3AED]/30 bg-[#7C3AED]/10 text-xs font-semibold text-[#A78BFA] backdrop-blur-md">
             <Sparkles className="w-3.5 h-3.5 text-[#7C3AED]" />
-            <span>Character Intelligence Layer</span>
+            <span>Character Identity Registry & MCP Layer</span>
           </div>
 
-          {/* Headline */}
-          <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white leading-tight">
-            AI characters that behave <span className="bg-gradient-to-r from-[#A78BFA] via-[#7C3AED] to-purple-400 bg-clip-text text-transparent">like themselves.</span>
+          {/* Animated Headline with rotating word */}
+          <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white leading-[1.15]">
+            AI characters that actually{" "}
+            <span className="inline-block relative">
+              <span className="bg-gradient-to-r from-[#A78BFA] via-[#7C3AED] to-purple-400 bg-clip-text text-transparent transition-all duration-500 underline decoration-[#7C3AED]/40 decoration-wavy underline-offset-8">
+                {words[wordIndex]}
+              </span>
+            </span>{" "}
+            like themselves.
           </h1>
 
           {/* Subheadline */}
           <p className="max-w-2xl text-base sm:text-xl text-[#94A3B8] font-normal leading-relaxed">
-            Register your AI character once. The intelligence layer applies their personality to every scene — automatically.
+            Stop rewriting character personality in every prompt. Register once.
+            The intelligence layer applies their personality to every scene —
+            automatically, invisibly.
           </p>
 
-          {/* Two Buttons */}
+          {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center gap-3.5 pt-4 w-full sm:w-auto">
             <Link
               href="/signup"
@@ -36,136 +88,157 @@ export default function HomePage() {
               <ArrowRight className="w-4 h-4" />
             </Link>
 
-            <Link
-              href="/demo"
+            <button
+              type="button"
+              onClick={scrollToDemo}
               className="w-full sm:w-auto px-7 py-3.5 rounded-xl border border-[#2A2A4A] bg-[#0F0F1A] hover:bg-[#1C1C35] text-white font-semibold text-sm sm:text-base transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <Play className="w-4 h-4 text-[#A78BFA] fill-[#A78BFA]" />
               <span>See It Work</span>
-            </Link>
+            </button>
+          </div>
+
+          {/* Small row: Works with: Claude logo | ChatGPT logo — labeled "via MCP" */}
+          <div className="pt-6 flex items-center gap-4 text-xs text-[#94A3B8]">
+            <span className="uppercase tracking-wider font-semibold text-[10px]">
+              Works with:
+            </span>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#14142A] border border-[#1E1E3A]">
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span className="font-bold text-white">Claude</span>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#14142A] border border-[#1E1E3A]">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="font-bold text-white">ChatGPT</span>
+            </div>
+            <span className="px-2 py-0.5 rounded-md bg-[#7C3AED]/20 text-[#A78BFA] text-[10px] font-mono font-bold">
+              via MCP
+            </span>
           </div>
         </div>
       </section>
 
-      {/* THREE FEATURE CARDS: 1. Register → 2. Connect → 3. Create */}
-      <section className="py-20 border-b border-[#1E1E3A] bg-[#08080F]">
+      {/* ================= LIVE DEMO SECTION ================= */}
+      <section
+        id="demo-section"
+        className="py-20 border-b border-app bg-[#08080F]"
+      >
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+          <div className="text-center space-y-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-[#7C3AED]">
+              Live Simulator
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-black text-primary-app tracking-tight">
+              Type a scene. Watch your character come alive.
+            </h2>
+            <p className="text-sm text-secondary-app max-w-xl mx-auto">
+              No login needed. Just describe what happens. The character intelligence adds posture, micro-expressions, and subtext automatically.
+            </p>
+          </div>
+
+          <DemoInterface initialCharacters={characters} />
+        </div>
+      </section>
+
+      {/* ================= HOW IT WORKS (3 STEPS) ================= */}
+      <section className="py-20 border-b border-app bg-card-app">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
           <div className="text-center space-y-2">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            <span className="text-xs font-bold uppercase tracking-wider text-[#7C3AED]">
+              Architecture Flow
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-primary-app tracking-tight">
               How Vynter North Works
             </h2>
-            <p className="text-sm text-[#94A3B8] max-w-xl mx-auto">
-              Three seamless steps from character registration to AI video production.
+            <p className="text-sm text-secondary-app max-w-xl mx-auto">
+              From personality registration to production-ready AI video prompts.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* 1. Register */}
-            <div className="p-7 rounded-2xl bg-[#14142A] border border-[#1E1E3A] space-y-4 hover:border-[#7C3AED]/50 transition-colors">
-              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA] font-bold">
+            <div className="p-7 rounded-2xl bg-secondary-app border border-app space-y-4 hover:border-[#7C3AED]/50 transition-colors">
+              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA] font-bold text-lg">
                 1
               </div>
-              <h3 className="text-xl font-bold text-white">Register</h3>
-              <p className="text-sm text-[#94A3B8] leading-relaxed">
-                Build a deep personality profile. Define their verbal habits, movement styles, stress reactions, and core contradictions.
+              <h3 className="text-xl font-bold text-primary-app">
+                1. Register Your Character
+              </h3>
+              <p className="text-sm text-secondary-app leading-relaxed">
+                Upload images, write personality. Get permanent CVR ID. Define
+                danger reactions, comedic tics, and core contradictions.
               </p>
             </div>
 
             {/* 2. Connect */}
-            <div className="p-7 rounded-2xl bg-[#14142A] border border-[#1E1E3A] space-y-4 hover:border-[#7C3AED]/50 transition-colors">
-              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA] font-bold">
+            <div className="p-7 rounded-2xl bg-secondary-app border border-app space-y-4 hover:border-[#7C3AED]/50 transition-colors">
+              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA] font-bold text-lg">
                 2
               </div>
-              <h3 className="text-xl font-bold text-white">Connect</h3>
-              <p className="text-sm text-[#94A3B8] leading-relaxed">
-                Link your Vynter account key to Claude Desktop, ChatGPT, or custom video workflows using our native MCP server.
+              <h3 className="text-xl font-bold text-primary-app">
+                2. Connect Your AI Tool
+              </h3>
+              <p className="text-sm text-secondary-app leading-relaxed">
+                One MCP setup to Claude or ChatGPT. Permanent. Claude never sees
+                the raw skill document — only the finished enriched prompt.
               </p>
             </div>
 
-            {/* 3. Create */}
-            <div className="p-7 rounded-2xl bg-[#14142A] border border-[#1E1E3A] space-y-4 hover:border-[#7C3AED]/50 transition-colors">
-              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA] font-bold">
+            {/* 3. Describe */}
+            <div className="p-7 rounded-2xl bg-secondary-app border border-app space-y-4 hover:border-[#7C3AED]/50 transition-colors">
+              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA] font-bold text-lg">
                 3
               </div>
-              <h3 className="text-xl font-bold text-white">Create</h3>
-              <p className="text-sm text-[#94A3B8] leading-relaxed">
-                Input any raw scene prompt. The intelligence layer weaves in exact behavioral nuances and outputs ready-to-render instructions.
+              <h3 className="text-xl font-bold text-primary-app">
+                3. Describe the Scene
+              </h3>
+              <p className="text-sm text-secondary-app leading-relaxed">
+                Just say what happens. Character does the rest. Receive cinematographic
+                behavioral instructions ready for Runway, Kling, or HigsField.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* EXPLORE CHARACTERS SECTION (Placeholder) */}
-      <section className="py-20 bg-[#0F0F1A]">
+      {/* ================= MARKETPLACE PREVIEW (6 CARDS) ================= */}
+      <section className="py-20 bg-primary-app">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div className="space-y-1">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Explore Characters
+              <span className="text-xs font-bold uppercase tracking-wider text-[#7C3AED]">
+                Verified Personas
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-primary-app tracking-tight">
+                Meet the characters
               </h2>
-              <p className="text-sm text-[#94A3B8]">
-                Browse registered AI personas ready for production rentals.
+              <p className="text-sm text-secondary-app">
+                AI characters with deep behavioral sheets ready for studio rentals.
               </p>
             </div>
+
             <Link
               href="/marketplace"
-              className="text-xs font-semibold text-[#A78BFA] hover:text-white flex items-center gap-1 transition-colors"
+              className="text-xs font-semibold text-[#A78BFA] hover:text-white flex items-center gap-1.5 transition-colors"
             >
-              <span>View full marketplace</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <span>View Full Marketplace →</span>
             </Link>
           </div>
 
-          {/* Placeholder grid for characters */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="p-6 rounded-2xl bg-[#14142A] border border-dashed border-[#2A2A4A] flex flex-col items-center justify-center text-center py-16 space-y-3">
-              <div className="w-10 h-10 rounded-full bg-[#1C1C35] flex items-center justify-center text-[#A78BFA]">
-                <Users className="w-5 h-5" />
-              </div>
-              <p className="text-sm font-semibold text-white">Marketplace Catalog</p>
-              <p className="text-xs text-[#94A3B8] max-w-xs">
-                Character registry and marketplace catalog will populate automatically.
-              </p>
-              <Link
-                href="/marketplace"
-                className="mt-2 px-4 py-2 rounded-xl bg-[#1C1C35] hover:bg-[#2A2A4A] text-xs font-semibold text-[#A78BFA] transition-colors"
-              >
-                Browse Marketplace
-              </Link>
-            </div>
+            {characters.map((char) => (
+              <CharacterCard key={char.id} character={char} />
+            ))}
+          </div>
 
-            <div className="p-6 rounded-2xl bg-[#14142A] border border-dashed border-[#2A2A4A] flex flex-col items-center justify-center text-center py-16 space-y-3">
-              <div className="w-10 h-10 rounded-full bg-[#1C1C35] flex items-center justify-center text-[#A78BFA]">
-                <Star className="w-5 h-5" />
-              </div>
-              <p className="text-sm font-semibold text-white">Creator Registrations</p>
-              <p className="text-xs text-[#94A3B8] max-w-xs">
-                Register new personas with behavioral sheets, reference images, and voice profiles.
-              </p>
-              <Link
-                href="/characters/new"
-                className="mt-2 px-4 py-2 rounded-xl bg-[#1C1C35] hover:bg-[#2A2A4A] text-xs font-semibold text-[#A78BFA] transition-colors"
-              >
-                Register Character
-              </Link>
-            </div>
-
-            <div className="p-6 rounded-2xl bg-[#14142A] border border-dashed border-[#2A2A4A] flex flex-col items-center justify-center text-center py-16 space-y-3 sm:col-span-2 lg:col-span-1">
-              <div className="w-10 h-10 rounded-full bg-[#1C1C35] flex items-center justify-center text-[#A78BFA]">
-                <Bot className="w-5 h-5" />
-              </div>
-              <p className="text-sm font-semibold text-white">MCP Connection</p>
-              <p className="text-xs text-[#94A3B8] max-w-xs">
-                Connect your studio tools to Claude & ChatGPT with one click.
-              </p>
-              <Link
-                href="/connect"
-                className="mt-2 px-4 py-2 rounded-xl bg-[#1C1C35] hover:bg-[#2A2A4A] text-xs font-semibold text-[#A78BFA] transition-colors"
-              >
-                Set Up Connection
-              </Link>
-            </div>
+          <div className="text-center pt-6">
+            <Link
+              href="/marketplace"
+              className="vn-button-primary inline-flex items-center gap-2 px-8 py-3.5 text-sm font-bold shadow-lg"
+            >
+              <span>Explore All Characters on Marketplace</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
         </div>
       </section>

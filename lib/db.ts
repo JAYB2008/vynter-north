@@ -848,7 +848,7 @@ export async function createRental({
 }: {
   character_id: string;
   studio_id: string;
-  rental_type: "daily" | "weekly" | "monthly" | "purchase" | "free";
+  rental_type: "trial" | "daily" | "weekly" | "monthly" | "purchase" | "free";
   price_paid?: number;
   generation_credits?: number;
 }): Promise<Rental> {
@@ -857,14 +857,16 @@ export async function createRental({
 
   let expires_at: string | null = null;
   const now = Date.now();
-  if (rental_type === "daily") {
+  if (rental_type === "trial") {
+    expires_at = new Date(now + 86400000 * 3).toISOString();
+  } else if (rental_type === "daily") {
     expires_at = new Date(now + 86400000).toISOString();
   } else if (rental_type === "weekly") {
     expires_at = new Date(now + 86400000 * 7).toISOString();
   } else if (rental_type === "monthly") {
     expires_at = new Date(now + 86400000 * 30).toISOString();
   } else {
-    expires_at = null; // Permanent or Free Trial
+    expires_at = null; // Permanent or Free without expiration
   }
 
   const char = await getCharacterById(character_id);
@@ -921,6 +923,49 @@ export async function incrementRentalCreditsUsed(
   if (r) {
     r.credits_used += amount;
   }
+}
+
+export async function getRentalById(id: string): Promise<Rental | null> {
+  if (isSupabaseServerConfigured()) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("rentals")
+        .select("*, character:characters(*)")
+        .eq("id", id)
+        .single();
+      if (!error && data) return data as Rental;
+    } catch (e) {
+      console.warn("Supabase getRentalById fallback:", e);
+    }
+  }
+
+  return global.__vynterRentals?.find((r) => r.id === id) || null;
+}
+
+export async function updateRentalStatus(
+  id: string,
+  status: "active" | "expired" | "cancelled"
+): Promise<Rental | null> {
+  if (isSupabaseServerConfigured()) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("rentals")
+        .update({ status })
+        .eq("id", id)
+        .select("*, character:characters(*)")
+        .single();
+      if (!error && data) return data as Rental;
+    } catch (e) {
+      console.warn("Supabase updateRentalStatus fallback:", e);
+    }
+  }
+
+  const rental = global.__vynterRentals?.find((r) => r.id === id);
+  if (rental) {
+    rental.status = status;
+    return rental;
+  }
+  return null;
 }
 
 /* =========================================================================

@@ -97,11 +97,44 @@ export default function OnboardingPage() {
   useEffect(() => {
     async function loadUser() {
       try {
+        // First check localStorage progress if any
+        try {
+          const cached = localStorage.getItem("vn_onboarding_progress");
+          if (cached) {
+            const data = JSON.parse(cached);
+            if (data.currentStep) setCurrentStep(data.currentStep);
+            if (data.selectedRole) setSelectedRole(data.selectedRole);
+            if (data.displayName) setDisplayName(data.displayName);
+            if (data.username) setUsername(data.username);
+            if (data.bio) setBio(data.bio);
+            if (data.avatarUrl) setAvatarUrl(data.avatarUrl);
+            if (data.selectedGenres) setSelectedGenres(data.selectedGenres);
+            if (data.website) setWebsite(data.website);
+            if (data.studioName) setStudioName(data.studioName);
+            if (data.studioType) setStudioType(data.studioType);
+            if (data.creationTypes) setCreationTypes(data.creationTypes);
+            if (data.studioBio) setStudioBio(data.studioBio);
+            if (data.studioWebsite) setStudioWebsite(data.studioWebsite);
+          }
+        } catch {}
+
         const {
           data: { user },
         } = await supabase.auth.getUser();
 
         if (!user) {
+          // Check if local or demo session exists in localStorage
+          const localProfileStr = localStorage.getItem("vynter_active_profile");
+          if (localProfileStr) {
+            try {
+              const localProfile = JSON.parse(localProfileStr);
+              setUserProfile(localProfile);
+              setDisplayName(localProfile.display_name || "Creator");
+              if (localProfile.role) setSelectedRole(localProfile.role);
+              setLoading(false);
+              return;
+            } catch {}
+          }
           router.push("/login?redirect_to=/onboarding");
           return;
         }
@@ -122,8 +155,8 @@ export default function OnboardingPage() {
           setDisplayName(profile.display_name || user.email?.split("@")[0] || "");
           if (profile.role) {
             setSelectedRole(profile.role);
-            // If role is already selected, advance to step 2
-            setCurrentStep(2);
+            // If role is already selected, advance to step 2 if not restored
+            setCurrentStep((prev) => Math.max(prev, 2));
           }
           if (profile.username) setUsername(profile.username);
           if (profile.bio) setBio(profile.bio);
@@ -195,6 +228,26 @@ export default function OnboardingPage() {
           .eq("id", user.id);
       }
       setCurrentStep(2);
+      try {
+        localStorage.setItem(
+          "vn_onboarding_progress",
+          JSON.stringify({
+            currentStep: 2,
+            selectedRole,
+            displayName,
+            username,
+            bio,
+            avatarUrl,
+            selectedGenres,
+            website,
+            studioName,
+            studioType,
+            creationTypes,
+            studioBio,
+            studioWebsite,
+          })
+        );
+      } catch {}
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to save role.";
       setErrorMsg(msg);
@@ -236,6 +289,21 @@ export default function OnboardingPage() {
 
       // Creators jump straight to step 4 (Ready)
       setCurrentStep(4);
+      try {
+        localStorage.setItem(
+          "vn_onboarding_progress",
+          JSON.stringify({
+            currentStep: 4,
+            selectedRole,
+            displayName,
+            username,
+            bio,
+            avatarUrl,
+            selectedGenres,
+            website,
+          })
+        );
+      } catch {}
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to save creator profile.";
       setErrorMsg(msg);
@@ -275,6 +343,21 @@ export default function OnboardingPage() {
 
       // Studios advance to step 3 (Verification)
       setCurrentStep(3);
+      try {
+        localStorage.setItem(
+          "vn_onboarding_progress",
+          JSON.stringify({
+            currentStep: 3,
+            selectedRole,
+            displayName,
+            studioName,
+            studioType,
+            creationTypes,
+            studioBio,
+            studioWebsite,
+          })
+        );
+      } catch {}
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to save studio profile.";
       setErrorMsg(msg);
@@ -308,6 +391,21 @@ export default function OnboardingPage() {
           .eq("id", user.id);
       }
       setCurrentStep(4);
+      try {
+        localStorage.setItem(
+          "vn_onboarding_progress",
+          JSON.stringify({
+            currentStep: 4,
+            selectedRole,
+            displayName,
+            studioName,
+            studioType,
+            creationTypes,
+            studioBio,
+            studioWebsite,
+          })
+        );
+      } catch {}
     } catch (err) {
       console.warn("Verification update error:", err);
       setCurrentStep(4);
@@ -329,13 +427,21 @@ export default function OnboardingPage() {
           .from("profiles")
           .update({
             onboarding_completed: true,
+            role: selectedRole || undefined,
             updated_at: new Date().toISOString(),
           })
           .eq("id", user.id);
       }
 
+      try {
+        localStorage.removeItem("vn_onboarding_progress");
+      } catch {}
+
       router.push(destination);
     } catch {
+      try {
+        localStorage.removeItem("vn_onboarding_progress");
+      } catch {}
       router.push(destination);
     }
   };
@@ -1075,7 +1181,7 @@ export default function OnboardingPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleCompleteOnboarding("/characters/new")}
+                    onClick={() => handleCompleteOnboarding("/dashboard/characters/new")}
                     className="w-full py-2 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-xs font-semibold text-white shadow-md cursor-pointer"
                   >
                     Create Character →

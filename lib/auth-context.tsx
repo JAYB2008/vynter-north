@@ -11,6 +11,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   loginAs: (role: UserRole) => void;
+  loginWithName: (name: string) => { profile: Profile; isNew: boolean };
+  updateProfile: (updates: Partial<Profile>) => Profile | null;
   setUserProfile: (profile: Profile) => void;
   setRole: (role: UserRole) => void;
   refreshProfile: () => Promise<Profile | null>;
@@ -23,11 +25,74 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   isLoading: true,
   loginAs: () => {},
+  loginWithName: () => {
+    throw new Error("AuthProvider missing");
+  },
+  updateProfile: () => null,
   setUserProfile: () => {},
   setRole: () => {},
   refreshProfile: async () => null,
   logout: async () => {},
 });
+
+/* ------------------------------------------------------------------ */
+/* Testing-mode name accounts                                          */
+/* ------------------------------------------------------------------ */
+
+const ACTIVE_KEY = "vynter_active_profile";
+const ACCOUNTS_KEY = "vynter_name_accounts";
+
+export function normalizeName(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** Deterministic hex string derived from a seed (FNV-1a, chained). */
+function hashHex(seed: string, length: number) {
+  let out = "";
+  let h = 0x811c9dc5;
+  let round = 0;
+  while (out.length < length) {
+    const input = `${seed}:${round++}`;
+    for (let i = 0; i < input.length; i++) {
+      h ^= input.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    out += h.toString(16).padStart(8, "0");
+  }
+  return out.slice(0, length);
+}
+
+function nameToId(norm: string) {
+  const h = hashHex(`id:${norm}`, 32);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+function readAccounts(): Record<string, Profile> {
+  try {
+    return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeAccount(profile: Profile) {
+  const accounts = readAccounts();
+  // Refresh every alias (original login name, renamed display name) for this id
+  for (const key of Object.keys(accounts)) {
+    if (accounts[key]?.id === profile.id) accounts[key] = profile;
+  }
+  accounts[normalizeName(profile.display_name)] = profile;
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+/** Best-effort sync to the server profile store (used by MCP account keys). */
+function syncProfileToServer(profile: Profile) {
+  fetch("/api/profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  }).catch(() => {});
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<Profile | null>(null);
@@ -152,13 +217,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginAs = (targetRole: UserRole) => {
     const selected = targetRole === "creator" ? DEMO_CREATOR : DEMO_STUDIO;
     setUser(selected);
-    localStorage.setItem("vynter_active_profile", JSON.stringify(selected));
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(selected));
     document.cookie = `vynter_auth_token=active; path=/; max-age=86400`;
+  };
+
+  /** Testing mode: type a name to create an account or log back into it. */
+  const loginWithName = (name: string) => {
+    const display = name.trim().replace(/\s+/g, " ");
+    const norm = normalizeName(display);
+    if (norm.length < 2) throw new Error("Please enter at least 2 characters.");
+
+    const existing = readAccounts()[norm];
+    const profile: Profile = existing || {
+      id: nameToId(norm),
+      display_name: display,
+      username: norm.replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || null,
+      role: "creator",
+      bio: null,
+      avatar_url: null,
+      account_key: `vn-${hashHex(`key:${norm}`, 40)}`,
+      total_earnings: 0,
+      total_spent: 0,
+      onboarding_completed: false,
+      verified: false,
+      created_at: new Date().toISOString(),
+    };
+
+    writeAccount(profile);
+    setUser(profile);
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(profile));
+    document.cookie = `vynter_auth_token=active; path=/; max-age=2592000`;
+    syncProfileToServer(profile);
+    return { profile, isNew: !existing };
+  };
+
+  const updateProfile = (updates: Partial<Profile>) => {
+    if (!user) return null;
+    const updated: Profile = {
+      ...user,
+      ...updates,
+      id: user.id,
+      updated_at: new Date().toISOString(),
+    };
+    setUser(updated);
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(updated));
+    writeAccount(updated);
+    syncProfileToServer(updated);
+    return updated;
   };
 
   const setUserProfile = (profile: Profile) => {
     setUser(profile);
-    localStorage.setItem("vynter_active_profile", JSON.stringify(profile));
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(profile));
+    writeAccount(profile);
+    syncProfileToServer(profile);
   };
 
   const setRole = (newRole: UserRole) => {
@@ -166,9 +278,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loginAs(newRole);
       return;
     }
-    const updated: Profile = { ...user, role: newRole };
-    setUser(updated);
-    localStorage.setItem("vynter_active_profile", JSON.stringify(updated));
+    updateProfile({ role: newRole });
   };
 
   const logout = async () => {
@@ -193,6 +303,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: mounted ? isAuthenticated : false,
         isLoading,
         loginAs,
+        loginWithName,
+        updateProfile,
         setUserProfile,
         setRole,
         refreshProfile,

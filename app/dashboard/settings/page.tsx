@@ -23,9 +23,14 @@ export default function SettingsPage() {
   const supabase = createClient();
 
   const [displayName, setDisplayName] = useState("");
+  const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [website, setWebsite] = useState("");
   const [accountKey, setAccountKey] = useState("");
+
+  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [mcpActivityAlerts, setMcpActivityAlerts] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
@@ -40,8 +45,10 @@ export default function SettingsPage() {
   useEffect(() => {
     if (user) {
       setDisplayName(user.display_name || "");
+      setUsername(user.username || "");
       setBio(user.bio || "");
       setAvatarUrl(user.avatar_url || "");
+      setWebsite(user.website || "");
       setAccountKey(user.account_key || "vn-prod-key-pending");
     }
   }, [user]);
@@ -64,8 +71,10 @@ export default function SettingsPage() {
         .from("profiles")
         .update({
           display_name: displayName.trim(),
+          username: username.trim().toLowerCase() || null,
           bio: bio.trim() || null,
           avatar_url: avatarUrl.trim() || null,
+          website: website.trim() || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", authUser.id);
@@ -223,6 +232,35 @@ export default function SettingsPage() {
 
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-[#94A3B8] block">
+              Username (@handle)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-2.5 text-[#64748B] text-sm">@</span>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="username"
+                className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-[#0F0F1A] border border-[#1E1E3A] text-white text-sm focus:outline-none focus:border-[#7C3AED]"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-[#94A3B8] block">
+              Website
+            </label>
+            <input
+              type="url"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://yourwebsite.com"
+              className="w-full px-4 py-2.5 rounded-xl bg-[#0F0F1A] border border-[#1E1E3A] text-white text-sm focus:outline-none focus:border-[#7C3AED]"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-[#94A3B8] block">
               Bio
             </label>
             <textarea
@@ -259,6 +297,72 @@ export default function SettingsPage() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Studio Verification Status (if studio) */}
+      {role === "studio" && (
+        <div className="p-6 rounded-2xl bg-[#14142A] border border-[#1E1E3A] space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Shield className="w-4 h-4 text-[#7C3AED]" />
+                <span>Studio Verification Status</span>
+              </h2>
+              <p className="text-xs text-[#94A3B8]">
+                Verified studios get 3x higher approval rates and priority character reservations.
+              </p>
+            </div>
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+                user?.studio_verified
+                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                  : "bg-amber-500/20 text-amber-400 border-amber-500/40"
+              }`}
+            >
+              {user?.studio_verified ? "Verified Studio" : "Basic Studio"}
+            </span>
+          </div>
+
+          <p className="text-xs text-[#94A3B8]">
+            {user?.studio_verified
+              ? "Your studio business credentials have been confirmed. You have unrestricted access to studio character rental tiers."
+              : "Basic verification active (agreed to Studio Code of Conduct). Upload business registration or portfolio to unlock Full Studio Verification."}
+          </p>
+        </div>
+      )}
+
+      {/* Notification Preferences */}
+      <div className="p-6 rounded-2xl bg-[#14142A] border border-[#1E1E3A] space-y-4">
+        <h2 className="text-base font-bold text-white">
+          Notification Preferences
+        </h2>
+        <div className="space-y-3 text-xs sm:text-sm">
+          <label className="flex items-center justify-between p-3 rounded-xl bg-[#0F0F1A] border border-[#1E1E3A] cursor-pointer">
+            <div className="space-y-0.5">
+              <span className="font-semibold text-white block">Email Rental Alerts</span>
+              <span className="text-xs text-[#94A3B8]">Notify me when a character is rented or a lease is renewed</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={emailAlerts}
+              onChange={(e) => setEmailAlerts(e.target.checked)}
+              className="rounded border-[#1E1E3A] text-[#7C3AED] focus:ring-[#7C3AED] w-4 h-4 accent-[#7C3AED]"
+            />
+          </label>
+
+          <label className="flex items-center justify-between p-3 rounded-xl bg-[#0F0F1A] border border-[#1E1E3A] cursor-pointer">
+            <div className="space-y-0.5">
+              <span className="font-semibold text-white block">MCP Activity Summaries</span>
+              <span className="text-xs text-[#94A3B8]">Weekly digest of scene enrichments and token credit balances</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={mcpActivityAlerts}
+              onChange={(e) => setMcpActivityAlerts(e.target.checked)}
+              className="rounded border-[#1E1E3A] text-[#7C3AED] focus:ring-[#7C3AED] w-4 h-4 accent-[#7C3AED]"
+            />
+          </label>
+        </div>
       </div>
 
       {/* Account Key Display with Copy & Regenerate */}

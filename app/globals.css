@@ -2,30 +2,6 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #FFFFFF;
-  --bg-secondary: #F8F7FF;
-  --bg-card: #FFFFFF;
-  --bg-elevated: #F3F2FF;
-  --accent: #7C3AED;
-  --accent-hover: #6D28D9;
-  --accent-soft: rgba(124, 58, 237, 0.08);
-  --accent-light: #6D28D9;
-  --text-primary: #0F0A1E;
-  --text-secondary: #4B5563;
-  --text-muted: #9CA3AF;
-  --border: #E5E7EB;
-  --border-light: #F3F4F6;
-  --success: #059669;
-  --warning: #D97706;
-  --danger: #DC2626;
-
-  --card-radius: 12px;
-  --input-radius: 8px;
-  --btn-radius: 6px;
-}
-
-.dark,
-:root:not(.light) {
   --bg-primary: #08080F;
   --bg-secondary: #0F0F1A;
   --bg-card: #14142A;
@@ -42,6 +18,29 @@
   --success: #10B981;
   --warning: #F59E0B;
   --danger: #EF4444;
+
+  --card-radius: 12px;
+  --input-radius: 8px;
+  --btn-radius: 6px;
+}
+
+.light {
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F8F7FF;
+  --bg-card: #FFFFFF;
+  --bg-elevated: #F3F2FF;
+  --accent: #7C3AED;
+  --accent-hover: #6D28D9;
+  --accent-soft: rgba(124, 58, 237, 0.08);
+  --accent-light: #6D28D9;
+  --text-primary: #0F0A1E;
+  --text-secondary: #4B5563;
+  --text-muted: #9CA3AF;
+  --border: #E5E7EB;
+  --border-light: #F3F4F6;
+  --success: #059669;
+  --warning: #D97706;
+  --danger: #DC2626;
 }
 
 body {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Sparkles,
   ArrowRight,
@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Layers,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Character, EnrichmentOutput } from "@/lib/types";
@@ -22,31 +23,34 @@ import { Character, EnrichmentOutput } from "@/lib/types";
 interface DemoInterfaceProps {
   initialCharacters?: Character[];
   preselectedCharacterName?: string;
+  hideVideoLinks?: boolean;
 }
 
 export function DemoInterface({
   initialCharacters = [],
   preselectedCharacterName = "Cairo",
+  hideVideoLinks = false,
 }: DemoInterfaceProps) {
-  const characters = initialCharacters.length > 0
-    ? initialCharacters
-    : [
-        {
-          id: "CVR-2025-00001",
-          name: "Cairo",
-          vibe_summary: "Loud. Performative. Secretly terrified.",
-        },
-        {
-          id: "CVR-2025-00002",
-          name: "Sable",
-          vibe_summary: "Still. Watchful. Already decided.",
-        },
-        {
-          id: "CVR-2025-00003",
-          name: "Drew",
-          vibe_summary: "Warm. Impulsive. Breaks things trying to fix them.",
-        },
-      ];
+  const characters =
+    initialCharacters.length > 0
+      ? initialCharacters
+      : [
+          {
+            id: "CVR-2025-00001",
+            name: "Cairo",
+            vibe_summary: "Loud. Performative. Secretly terrified.",
+          },
+          {
+            id: "CVR-2025-00002",
+            name: "Sable",
+            vibe_summary: "Still. Watchful. Already decided.",
+          },
+          {
+            id: "CVR-2025-00003",
+            name: "Drew",
+            vibe_summary: "Warm. Impulsive. Breaks things trying to fix them.",
+          },
+        ];
 
   const [selectedCharName, setSelectedCharName] = useState(
     preselectedCharacterName
@@ -55,38 +59,46 @@ export function DemoInterface({
     "Cairo walks into a job interview and the interviewer already looks thoroughly unimpressed."
   );
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<
+    "Reading character profile..." | "Applying personality..." | "Done"
+  >("Done");
   const [result, setResult] = useState<EnrichmentOutput | null>(null);
   const [copied, setCopied] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(true);
 
+  // Exact 3 example scene buttons from spec
   const presets = [
     {
-      label: "Cairo in a job interview",
+      label: "Cairo in a job interview →",
       char: "Cairo",
-      scene:
-        "Cairo walks into a high-stakes job interview and the interviewer already looks thoroughly unimpressed.",
+      scene: "Cairo walks into a job interview and the interviewer already looks thoroughly unimpressed.",
     },
     {
-      label: "Sable spots a threat before anyone else",
+      label: "Sable spots a threat →",
       char: "Sable",
-      scene:
-        "Sable is at a noisy political rally when she notices an unmarked drone descending silently above the VIP podium.",
+      scene: "Sable is at a crowded political rally when she spots a suspicious movement above the VIP terrace.",
     },
     {
-      label: "Drew has to fix something that just broke",
+      label: "Drew has to fix something that broke →",
       char: "Drew",
-      scene:
-        "Drew is tasked with rebooting the primary atmospheric generator while emergency alarms are blaring and the crew is panicking.",
+      scene: "Drew has to fix the main power generator that broke right as emergency sirens start blaring.",
     },
   ];
 
   const handleEnrich = async () => {
     if (!scene.trim()) {
-      toast.error("Please describe a scene to enrich.");
+      toast.error("Please describe what happens in the scene.");
       return;
     }
 
     setLoading(true);
+    setLoadingStep("Reading character profile...");
+
+    // Simulated sequential loading states
+    const timer1 = setTimeout(() => {
+      setLoadingStep("Applying personality...");
+    }, 900);
+
     try {
       const response = await fetch("/api/enrich", {
         method: "POST",
@@ -103,16 +115,18 @@ export function DemoInterface({
         throw new Error(data.error || "Failed to enrich scene.");
       }
 
+      setLoadingStep("Done");
       setResult(data);
-      toast.success("Scene enriched with character intelligence!");
+      toast.success("Scene enriched with character personality!");
     } catch (err: any) {
-      toast.error(err.message || "Failed to run enrichment.");
+      toast.error(err.message || "Failed to generate character enrichment.");
     } finally {
+      clearTimeout(timer1);
       setLoading(false);
     }
   };
 
-  const copyToClipboard = () => {
+  const handleCopy = () => {
     if (!result?.enriched_prompt) return;
     navigator.clipboard.writeText(result.enriched_prompt);
     setCopied(true);
@@ -121,73 +135,66 @@ export function DemoInterface({
   };
 
   const selectedChar =
-    characters.find((c) => c.name.toLowerCase() === selectedCharName.toLowerCase()) ||
-    characters[0];
+    characters.find((c) => c.name === selectedCharName) || characters[0];
 
   return (
-    <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
+    <div className="w-full space-y-6">
       {/* Two-Panel Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-        {/* LEFT PANEL: Your Prompt */}
-        <div className="vn-card p-6 flex flex-col justify-between gap-4">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold tracking-wider text-muted-app uppercase">
-                Step 1: Your Input
+        {/* LEFT PANEL — "Your prompt" */}
+        <div className="vn-card p-6 flex flex-col justify-between space-y-4">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-app pb-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-app">
+                Your Prompt
               </span>
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/10 text-[#A78BFA] border border-purple-500/20">
-                Studio Scene
+              <span className="text-xs text-[#A78BFA] font-semibold">
+                Event Description Only
               </span>
             </div>
 
-            {/* Character Selector Dropdown */}
-            <div>
-              <label className="text-xs font-semibold text-secondary-app block mb-1.5">
-                Target AI Character
+            {/* Character Selector Dropdown (3 pre-loaded demo characters) */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-secondary-app block">
+                Select Character Persona
               </label>
-              <div className="relative">
-                <select
-                  value={selectedCharName}
-                  onChange={(e) => {
-                    setSelectedCharName(e.target.value);
-                  }}
-                  className="vn-input w-full px-3.5 py-2.5 text-sm font-medium pr-10 cursor-pointer appearance-none"
-                >
-                  {characters.map((c) => (
-                    <option key={c.id || c.name} value={c.name}>
-                      {c.name} — "{c.vibe_summary}"
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-4 h-4 text-muted-app absolute right-3.5 top-3.5 pointer-events-none" />
-              </div>
+              <select
+                value={selectedCharName}
+                onChange={(e) => {
+                  setSelectedCharName(e.target.value);
+                  const matched = presets.find((p) => p.char === e.target.value);
+                  if (matched) setScene(matched.scene);
+                }}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm font-semibold focus:outline-none focus:border-[#7C3AED] transition-colors"
+              >
+                {characters.map((c) => (
+                  <option key={c.id || c.name} value={c.name}>
+                    {c.name} — {c.vibe_summary}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Scene Textarea */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-secondary-app">
-                  Scene Description
-                </label>
-                <span className="text-[11px] text-muted-app">
-                  Keep it simple — just the events
-                </span>
-              </div>
+            {/* Large Textarea */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-secondary-app block">
+                Scene Event
+              </label>
               <textarea
                 rows={5}
                 value={scene}
                 onChange={(e) => setScene(e.target.value)}
-                placeholder="Describe what happens in the scene. Keep it simple — just the event. Don't describe emotions or behavior. The character intelligence adds all of that."
-                className="vn-input w-full p-3.5 text-sm leading-relaxed resize-none"
+                placeholder="Describe what happens in the scene. Keep it simple — just the event. Don't describe how they feel or act. The character intelligence adds all of that."
+                className="w-full p-3.5 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm focus:outline-none focus:border-[#7C3AED] transition-colors resize-none leading-relaxed"
               />
             </div>
 
-            {/* Quick Example Scene Buttons */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium text-muted-app">
-                Quick Test Prompts:
+            {/* Three Example Scene Buttons */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-semibold text-muted-app block">
+                Or try an example scene:
               </span>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {presets.map((p, idx) => (
                   <button
                     key={idx}
@@ -196,127 +203,115 @@ export function DemoInterface({
                       setSelectedCharName(p.char);
                       setScene(p.scene);
                     }}
-                    className="text-left text-xs text-secondary-app hover:text-[#A78BFA] hover:bg-elevated-app px-2.5 py-1.5 rounded-md border border-app transition-colors flex items-center justify-between group"
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-elevated-app hover:bg-[#1C1C35] text-secondary-app hover:text-primary-app border border-app transition-colors cursor-pointer"
                   >
-                    <span className="truncate">{p.label}</span>
-                    <ArrowRight className="w-3 h-3 text-muted-app group-hover:text-[#A78BFA] shrink-0 ml-1 transition-transform group-hover:translate-x-0.5" />
+                    {p.label}
                   </button>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Action Button */}
+          {/* Full-width Purple Button */}
           <button
+            type="button"
             onClick={handleEnrich}
             disabled={loading}
-            className="vn-button-primary w-full py-3 px-4 flex items-center justify-center gap-2 shadow-lg shadow-purple-600/20 text-sm font-bold tracking-wide mt-2"
+            className="vn-button-primary w-full py-3.5 text-sm font-bold shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
           >
             {loading ? (
               <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Running Character Intelligence...</span>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>{loadingStep}</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>Enrich This Scene ↗</span>
+                <span>Enrich This Scene →</span>
               </>
             )}
           </button>
         </div>
 
-        {/* RIGHT PANEL: What Video Tool Receives */}
-        <div className="vn-card p-6 flex flex-col justify-between gap-4 border-[#7C3AED]/30">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold tracking-wider text-muted-app uppercase">
-                Step 2: Output
+        {/* RIGHT PANEL — "What your video tool receives" */}
+        <div
+          className={`vn-card p-6 flex flex-col justify-between space-y-4 transition-all duration-300 ${
+            result ? "opacity-100" : "opacity-75 bg-secondary-app/50"
+          }`}
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-app pb-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-app">
+                What Your Video Tool Receives
               </span>
+
               {result && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    {result.word_count.original}w → {result.word_count.enriched}w ({result.word_count.multiplier}x enrichment)
-                  </span>
-                </div>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold font-mono">
+                  {result.word_count.original} words → {result.word_count.enriched} words ({result.word_count.multiplier} enrichment)
+                </span>
               )}
             </div>
 
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-primary-app flex items-center gap-2">
-                <BrainCircuit className="w-4 h-4 text-[#7C3AED]" />
-                <span>Prompt For Video Generator (Runway / Kling / HigsField)</span>
-              </h4>
-
-              {result && (
-                <button
-                  onClick={copyToClipboard}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold border border-app bg-elevated-app hover:border-[#7C3AED] transition-all text-secondary-app hover:text-primary-app"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-emerald-400">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy Prompt</span>
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-
-            {/* Output Box */}
-            <div className="min-h-[220px] rounded-xl bg-elevated-app border border-app p-4 flex flex-col justify-center">
-              {loading ? (
-                <div className="flex flex-col items-center justify-center gap-3 py-8 text-muted-app">
-                  <div className="w-10 h-10 rounded-full border-2 border-[#7C3AED] border-t-transparent animate-spin" />
-                  <p className="text-xs font-medium animate-pulse">
-                    Decrypting personality profile & enriching scene with NVIDIA NIM...
-                  </p>
-                </div>
-              ) : result ? (
-                <p className="text-sm text-primary-app leading-relaxed font-sans select-all whitespace-pre-line animate-fadeIn">
-                  {result.enriched_prompt}
+            {loading ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-3 text-center">
+                <div className="w-10 h-10 rounded-full border-2 border-[#7C3AED] border-t-transparent animate-spin" />
+                <p className="text-sm font-bold text-primary-app animate-pulse">
+                  {loadingStep}
                 </p>
-              ) : (
-                <div className="flex flex-col items-center justify-center text-center p-6 text-muted-app">
-                  <BrainCircuit className="w-10 h-10 mb-2 opacity-40 text-[#7C3AED]" />
-                  <p className="text-sm font-medium text-secondary-app">
-                    Enriched prompt will appear here...
-                  </p>
-                  <p className="text-xs text-muted-app max-w-xs mt-1">
-                    Select a character, click "Enrich This Scene", and witness the personality layer weave in cinematic film direction.
-                  </p>
+                <p className="text-xs text-secondary-app max-w-xs">
+                  Decoupling raw event from character personality layers.
+                </p>
+              </div>
+            ) : result ? (
+              <div className="space-y-3 animate-in fade-in duration-300">
+                <div className="p-4 rounded-xl bg-secondary-app border border-app font-sans text-xs sm:text-sm text-primary-app leading-relaxed select-all max-h-72 overflow-y-auto">
+                  {result.enriched_prompt}
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="h-64 flex flex-col items-center justify-center text-center p-6 space-y-2 text-muted-app">
+                <BrainCircuit className="w-10 h-10 opacity-30" />
+                <p className="text-sm font-semibold text-secondary-app">
+                  No enriched scene yet
+                </p>
+                <p className="text-xs max-w-xs">
+                  Select a character and click "Enrich This Scene" to see professional film direction generated automatically.
+                </p>
+              </div>
+            )}
           </div>
 
           {result && (
-            <div className="pt-2 border-t border-app flex items-center justify-between text-xs text-muted-app">
-              <span>Character: <strong className="text-primary-app">{result.character.name}</strong></span>
-              <span>Model: <span className="font-mono text-[11px] text-[#A78BFA]">{result.model_used || "NVIDIA NIM LLaMA-3"}</span></span>
-            </div>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="w-full py-3 rounded-xl border border-app bg-elevated-app hover:bg-[#1C1C35] text-xs font-bold text-primary-app flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-[#A78BFA]" />}
+              <span>{copied ? "Copied Prompt" : "Copy Enriched Prompt"}</span>
+            </button>
           )}
         </div>
       </div>
 
-      {/* Collapsible Full Behavior Analysis */}
-      {result?.behavior_breakdown && (
-        <div className="vn-card p-6 flex flex-col gap-4">
+      {/* COLLAPSIBLE "Full Behavior Breakdown" (4 CARDS) */}
+      {result && result.behavior_breakdown && (
+        <div className="vn-card overflow-hidden">
           <button
+            type="button"
             onClick={() => setShowBreakdown(!showBreakdown)}
-            className="flex items-center justify-between w-full text-left"
+            className="w-full p-4 flex items-center justify-between text-left border-b border-app hover:bg-elevated-app/50 transition-colors cursor-pointer"
           >
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#7C3AED]" />
-              <h4 className="font-bold text-sm text-primary-app">
-                Full Behavior Breakdown (Extracted Intelligence)
-              </h4>
+              <BrainCircuit className="w-4 h-4 text-[#7C3AED]" />
+              <span className="text-xs sm:text-sm font-bold text-primary-app">
+                Full Behavior Breakdown
+              </span>
+              <span className="text-xs text-muted-app hidden sm:inline">
+                (Facial Expression • Body Language • Emotional State • Dialogue Direction)
+              </span>
             </div>
+
             {showBreakdown ? (
               <ChevronUp className="w-4 h-4 text-muted-app" />
             ) : (
@@ -325,10 +320,11 @@ export function DemoInterface({
           </button>
 
           {showBreakdown && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-              <div className="p-3.5 rounded-lg bg-elevated-app border border-app flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-purple-400">
-                  <Eye className="w-3.5 h-3.5" />
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-300">
+              {/* Card 1: Facial Expression */}
+              <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#A78BFA]">
+                  <Eye className="w-4 h-4 text-[#7C3AED]" />
                   <span>Facial Expression</span>
                 </div>
                 <p className="text-xs text-secondary-app leading-relaxed">
@@ -336,30 +332,33 @@ export function DemoInterface({
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-lg bg-elevated-app border border-app flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-400">
-                  <Activity className="w-3.5 h-3.5" />
-                  <span>Body Language & Movement</span>
+              {/* Card 2: Body Language */}
+              <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#A78BFA]">
+                  <Activity className="w-4 h-4 text-[#7C3AED]" />
+                  <span>Body Language</span>
                 </div>
                 <p className="text-xs text-secondary-app leading-relaxed">
                   {result.behavior_breakdown.body_language}
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-lg bg-elevated-app border border-app flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-rose-400">
-                  <Heart className="w-3.5 h-3.5" />
-                  <span>Internal Emotional State</span>
+              {/* Card 3: Emotional State */}
+              <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#A78BFA]">
+                  <Heart className="w-4 h-4 text-[#7C3AED]" />
+                  <span>Emotional State</span>
                 </div>
                 <p className="text-xs text-secondary-app leading-relaxed">
                   {result.behavior_breakdown.emotional_state}
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-lg bg-elevated-app border border-app flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Dialogue & Vocal Delivery</span>
+              {/* Card 4: Dialogue Direction */}
+              <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#A78BFA]">
+                  <MessageSquare className="w-4 h-4 text-[#7C3AED]" />
+                  <span>Dialogue Direction</span>
                 </div>
                 <p className="text-xs text-secondary-app leading-relaxed">
                   {result.behavior_breakdown.dialogue_direction}
@@ -367,6 +366,53 @@ export function DemoInterface({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Video Tool Links (HigsField | Runway | Kling) */}
+      {!hideVideoLinks && (
+        <div className="p-5 rounded-2xl bg-card-app border border-app flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="space-y-0.5 text-center sm:text-left">
+            <span className="text-xs font-bold text-primary-app">
+              Ready to use this in your AI video tool?
+            </span>
+            <p className="text-xs text-secondary-app">
+              Directly copy the enriched prompt into HigsField, Runway, or Kling.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <a
+              href="https://higsfield.ai"
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-xl border border-app bg-secondary-app hover:border-[#7C3AED] text-xs font-semibold text-primary-app transition-colors"
+            >
+              HigsField
+            </a>
+            <a
+              href="https://runwayml.com"
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-xl border border-app bg-secondary-app hover:border-[#7C3AED] text-xs font-semibold text-primary-app transition-colors"
+            >
+              Runway Gen-3
+            </a>
+            <a
+              href="https://klingai.org"
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-xl border border-app bg-secondary-app hover:border-[#7C3AED] text-xs font-semibold text-primary-app transition-colors"
+            >
+              Kling AI
+            </a>
+            <a
+              href="/connect"
+              className="px-3 py-1.5 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-semibold shadow-sm transition-all"
+            >
+              Connect Tools →
+            </a>
+          </div>
         </div>
       )}
     </div>

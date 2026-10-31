@@ -19,9 +19,11 @@ import {
   Activity,
   MessageSquare,
   AlertCircle,
+  HelpCircle,
+  Clapperboard,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Character, Review } from "@/lib/types";
+import { Character, Review, RentalType } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { RentalModal } from "@/components/characters/RentalModal";
 import { DemoInterface } from "@/components/demo/DemoInterface";
@@ -44,6 +46,10 @@ export default function CharacterProfilePage({
   >("overview");
   const [rentalModalOpen, setRentalModalOpen] = useState(false);
 
+  // Rental Panel radio options state
+  const [selectedRentalType, setSelectedRentalType] = useState<RentalType>("monthly");
+  const [trialRunCount, setTrialRunCount] = useState<number>(0);
+
   // New review form
   const [newRating, setNewRating] = useState(5);
   const [newReviewText, setNewReviewText] = useState("");
@@ -55,6 +61,9 @@ export default function CharacterProfilePage({
       .then((d) => {
         if (d.character) {
           setCharacter(d.character);
+          if (d.character.is_free) {
+            setSelectedRentalType("free");
+          }
           if (d.reviews) setReviews(d.reviews);
         }
       })
@@ -68,10 +77,12 @@ export default function CharacterProfilePage({
 
     setSubmittingReview(true);
     try {
-      const res = await fetch(`/api/characters/${character.id}`, {
+      await fetch(`/api/characters/${character.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fame_score: Math.min(100, character.fame_score + 1) }),
+        body: JSON.stringify({
+          fame_score: Math.min(100, (character.fame_score || 95) + 1),
+        }),
       });
       const reviewObj: Review = {
         id: `rev-${Date.now()}`,
@@ -80,7 +91,15 @@ export default function CharacterProfilePage({
         rating: newRating,
         review_text: newReviewText,
         created_at: new Date().toISOString(),
-        reviewer: user || undefined,
+        reviewer: user || {
+          id: "guest",
+          display_name: "Studio Producer",
+          role: "studio",
+          bio: null,
+          avatar_url: null,
+          account_key: "vn-guest-reviewer",
+          total_earnings: 0,
+        },
       };
       setReviews([reviewObj, ...reviews]);
       setNewReviewText("");
@@ -92,36 +111,59 @@ export default function CharacterProfilePage({
     }
   };
 
+  const handleRentClick = () => {
+    if (!isAuthenticated) {
+      router.push(`/login?redirect_to=/marketplace/${character?.id}`);
+      return;
+    }
+    setRentalModalOpen(true);
+  };
+
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-16 flex items-center justify-center">
+      <div className="max-w-6xl mx-auto px-4 py-24 flex flex-col items-center justify-center gap-3">
         <div className="w-10 h-10 rounded-full border-2 border-[#7C3AED] border-t-transparent animate-spin" />
+        <span className="text-xs text-secondary-app">Loading character profile...</span>
       </div>
     );
   }
 
   if (!character) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-16 text-center flex flex-col items-center gap-4">
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center flex flex-col items-center gap-4">
         <h2 className="text-2xl font-bold text-primary-app">Character Not Found</h2>
         <p className="text-sm text-secondary-app">
-          The requested CVR identity does not exist or has been retired.
+          The requested CVR identity does not exist or has been removed.
         </p>
-        <Link href="/marketplace" className="vn-button-primary px-4 py-2 text-sm font-semibold">
+        <Link href="/marketplace" className="vn-button-primary px-5 py-2.5 text-xs font-semibold">
           Return to Marketplace
         </Link>
       </div>
     );
   }
 
+  // Selected credits based on radio choice
+  const getCreditsCount = () => {
+    if (selectedRentalType === "trial") return 15;
+    if (selectedRentalType === "daily") return 50;
+    if (selectedRentalType === "weekly") return 200;
+    if (selectedRentalType === "monthly") return 500;
+    if (selectedRentalType === "purchase") return "Unlimited";
+    return 100;
+  };
+
+  const wordCountSheet = character.full_character_sheet
+    ? character.full_character_sheet.trim().split(/\s+/).length
+    : 1040;
+
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col gap-10">
-      {/* Top Section: Hero & Sticky Rental Panel */}
+      {/* ================= HERO SECTION ================= */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         {/* Left Column (2 cols): Character Hero */}
         <div className="lg:col-span-2 flex flex-col sm:flex-row gap-6 items-start">
-          {/* Avatar with purple border glow */}
-          <div className="w-full sm:w-64 h-72 sm:h-80 rounded-2xl overflow-hidden shrink-0 border-2 border-[#7C3AED]/60 shadow-xl shadow-purple-600/20 bg-elevated-app relative">
+          {/* Avatar with purple glow border */}
+          <div className="w-full sm:w-64 h-72 sm:h-80 rounded-3xl overflow-hidden shrink-0 border-2 border-[#7C3AED] shadow-2xl shadow-purple-600/30 bg-elevated-app relative">
             {character.avatar_url ? (
               <img
                 src={character.avatar_url}
@@ -129,12 +171,15 @@ export default function CharacterProfilePage({
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full bg-gradient-to-tr from-purple-600 via-indigo-700 to-slate-900 flex items-center justify-center text-5xl font-black text-white">
+              <div className="w-full h-full bg-gradient-to-tr from-purple-700 via-indigo-800 to-slate-900 flex items-center justify-center text-5xl font-black text-white">
                 {character.name.slice(0, 2).toUpperCase()}
               </div>
             )}
-            <div className="absolute top-3 left-3 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-xs font-mono font-medium text-white">
+            <div className="absolute top-3 left-3 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md border border-white/10 text-xs font-mono font-medium text-white">
               {character.id}
+            </div>
+            <div className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold capitalize bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              {character.status}
             </div>
           </div>
 
@@ -144,7 +189,7 @@ export default function CharacterProfilePage({
               <h1 className="text-3xl sm:text-4xl font-black text-primary-app tracking-tight">
                 {character.name}
               </h1>
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-xs font-bold text-amber-400">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-xs font-bold text-amber-400">
                 <Star className="w-3.5 h-3.5 fill-amber-400" />
                 <span>{character.fame_score} Fame</span>
               </div>
@@ -186,88 +231,192 @@ export default function CharacterProfilePage({
           </div>
         </div>
 
-        {/* Right Column (1 col): Sticky Rental Panel */}
-        <div className="vn-card p-6 flex flex-col gap-5 sticky top-24 border-[#7C3AED]/40 shadow-xl">
-          <div className="flex items-center justify-between border-b border-app pb-3">
-            <div>
-              <span className="text-[10px] font-bold tracking-wider text-muted-app uppercase">
-                Rental Access
-              </span>
-              <div className="text-2xl font-black text-primary-app">
-                {character.is_free
-                  ? "Free Character"
-                  : `${formatCurrency(character.rental_price_daily)}/day`}
-              </div>
-            </div>
-
-            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold">
-              Instant MCP Ready
+        {/* ================= RENTAL PANEL (sticky right side on desktop) ================= */}
+        <div className="vn-card p-6 flex flex-col gap-5 sticky top-24 border-[#7C3AED]/50 shadow-2xl">
+          <div className="border-b border-app pb-3 space-y-1">
+            <span className="text-[10px] font-bold tracking-wider text-muted-app uppercase">
+              Production Licensing
             </span>
+            <div className="text-2xl font-black text-primary-app">
+              {character.is_free
+                ? "Free Access"
+                : `${formatCurrency(character.rental_price_daily)} / day`}
+            </div>
           </div>
 
-          {/* Pricing Options overview */}
-          <div className="flex flex-col gap-2 text-xs">
-            <div className="flex items-center justify-between p-2 rounded-lg bg-elevated-app border border-app">
-              <span className="font-semibold text-primary-app">Daily Rental</span>
-              <span className="font-mono text-secondary-app">
-                {formatCurrency(character.rental_price_daily)} (50 credits)
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded-lg bg-elevated-app border border-app">
-              <span className="font-semibold text-primary-app">Weekly Rental</span>
-              <span className="font-mono text-secondary-app">
-                {formatCurrency(character.rental_price_weekly)} (200 credits)
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded-lg bg-purple-500/10 border border-[#7C3AED]/30">
-              <span className="font-semibold text-[#A78BFA]">Monthly Rental</span>
-              <span className="font-mono text-primary-app font-bold">
-                {formatCurrency(character.rental_price_monthly)} (500 credits)
-              </span>
-            </div>
-            {character.purchase_price && (
-              <div className="flex items-center justify-between p-2 rounded-lg bg-elevated-app border border-app">
-                <span className="font-semibold text-primary-app">Permanent Buy</span>
-                <span className="font-mono text-secondary-app">
-                  {formatCurrency(character.purchase_price)} (Unlimited)
-                </span>
+          {/* Pricing Options Radio List */}
+          <div className="space-y-2">
+            <span className="text-xs font-bold text-primary-app block">
+              Choose License Tier:
+            </span>
+
+            {/* 3-Day Trial (Free) */}
+            <label
+              className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                selectedRentalType === "trial"
+                  ? "bg-purple-500/10 border-[#7C3AED] text-primary-app"
+                  : "bg-elevated-app border-app text-secondary-app hover:border-[#7C3AED]/50"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="rental-tier"
+                  checked={selectedRentalType === "trial"}
+                  onChange={() => setSelectedRentalType("trial")}
+                  className="text-[#7C3AED] focus:ring-[#7C3AED]"
+                />
+                <span className="font-semibold">3-Day Trial (Free)</span>
               </div>
+              <span className="font-mono text-muted-app">15 credits</span>
+            </label>
+
+            {/* Daily */}
+            {!character.is_free && (
+              <label
+                className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  selectedRentalType === "daily"
+                    ? "bg-purple-500/10 border-[#7C3AED] text-primary-app"
+                    : "bg-elevated-app border-app text-secondary-app hover:border-[#7C3AED]/50"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="rental-tier"
+                    checked={selectedRentalType === "daily"}
+                    onChange={() => setSelectedRentalType("daily")}
+                    className="text-[#7C3AED] focus:ring-[#7C3AED]"
+                  />
+                  <span className="font-semibold">Daily Lease</span>
+                </div>
+                <span className="font-mono text-muted-app">
+                  {formatCurrency(character.rental_price_daily)} (50 credits)
+                </span>
+              </label>
+            )}
+
+            {/* Weekly */}
+            {!character.is_free && (
+              <label
+                className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  selectedRentalType === "weekly"
+                    ? "bg-purple-500/10 border-[#7C3AED] text-primary-app"
+                    : "bg-elevated-app border-app text-secondary-app hover:border-[#7C3AED]/50"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="rental-tier"
+                    checked={selectedRentalType === "weekly"}
+                    onChange={() => setSelectedRentalType("weekly")}
+                    className="text-[#7C3AED] focus:ring-[#7C3AED]"
+                  />
+                  <span className="font-semibold">Weekly Lease</span>
+                </div>
+                <span className="font-mono text-muted-app">
+                  {formatCurrency(character.rental_price_weekly)} (200 credits)
+                </span>
+              </label>
+            )}
+
+            {/* Monthly */}
+            {!character.is_free && (
+              <label
+                className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  selectedRentalType === "monthly"
+                    ? "bg-purple-500/10 border-[#7C3AED] text-primary-app font-bold"
+                    : "bg-elevated-app border-app text-secondary-app hover:border-[#7C3AED]/50"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="rental-tier"
+                    checked={selectedRentalType === "monthly"}
+                    onChange={() => setSelectedRentalType("monthly")}
+                    className="text-[#7C3AED] focus:ring-[#7C3AED]"
+                  />
+                  <span className="font-semibold">Monthly Lease</span>
+                </div>
+                <span className="font-mono text-primary-app font-bold">
+                  {formatCurrency(character.rental_price_monthly)} (500 credits)
+                </span>
+              </label>
+            )}
+
+            {/* Purchase */}
+            {character.purchase_price && (
+              <label
+                className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  selectedRentalType === "purchase"
+                    ? "bg-purple-500/10 border-[#7C3AED] text-primary-app font-bold"
+                    : "bg-elevated-app border-app text-secondary-app hover:border-[#7C3AED]/50"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="rental-tier"
+                    checked={selectedRentalType === "purchase"}
+                    onChange={() => setSelectedRentalType("purchase")}
+                    className="text-[#7C3AED] focus:ring-[#7C3AED]"
+                  />
+                  <span className="font-semibold">Permanent Purchase</span>
+                </div>
+                <span className="font-mono text-secondary-app">
+                  {formatCurrency(character.purchase_price)} (Permanent)
+                </span>
+              </label>
             )}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => setRentalModalOpen(true)}
-              className="vn-button-primary w-full py-3 text-sm font-bold shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer"
-            >
+          {/* Action Button: Rent This Character / Sign In to Rent / Free — Activate Now */}
+          <button
+            type="button"
+            onClick={handleRentClick}
+            className="vn-button-primary w-full py-3.5 text-sm font-bold shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            {!isAuthenticated ? (
+              <span>Sign In to Rent</span>
+            ) : character.is_free || selectedRentalType === "trial" ? (
+              <span>Free — Activate Now</span>
+            ) : (
               <span>Rent This Character</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            )}
+            <ArrowRight className="w-4 h-4" />
+          </button>
 
-            <button
-              onClick={() => setRentalModalOpen(true)}
-              className="w-full py-2.5 rounded-md border border-app hover:border-[#7C3AED] bg-card-app text-xs font-semibold text-secondary-app hover:text-primary-app transition-colors"
-            >
-              Free 3-Day Trial (15 Credits)
-            </button>
-          </div>
-
-          {/* Voice Consistency Notice as specified */}
-          <div className="p-3 rounded-lg bg-elevated-app border border-app text-xs text-secondary-app flex items-start gap-2">
-            <Info className="w-4 h-4 text-[#7C3AED] shrink-0 mt-0.5" />
-            <p className="text-[11px] leading-relaxed">
-              <strong>Voice Consistency:</strong> Voice description is included in the
-              character intelligence layer. For exact voice matching in video
-              generation, use this character through HigsField's native Vynter
-              North integration (coming soon).
-            </p>
+          {/* "What you get" checklist */}
+          <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-2 text-xs">
+            <span className="font-bold text-primary-app block text-[11px] uppercase tracking-wider">
+              What You Receive:
+            </span>
+            <div className="flex items-center gap-2 text-secondary-app">
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>MCP token for this character</span>
+            </div>
+            <div className="flex items-center gap-2 text-secondary-app">
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Character intelligence for every scene</span>
+            </div>
+            <div className="flex items-center gap-2 text-secondary-app">
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Works with Claude & ChatGPT</span>
+            </div>
+            <div className="flex items-center gap-2 text-secondary-app">
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>
+                <strong>{getCreditsCount()}</strong> generation credits
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-app pb-2">
+      {/* ================= TABS ================= */}
+      <div className="flex items-center gap-2 border-b border-app pb-2 overflow-x-auto">
         {[
           { id: "overview", label: "Overview", icon: Info },
           { id: "personality", label: "Personality Sheet", icon: Layers },
@@ -280,7 +429,7 @@ export default function CharacterProfilePage({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all border ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border cursor-pointer whitespace-nowrap ${
                 isSelected
                   ? "bg-[#7C3AED] text-white border-[#7C3AED] shadow-sm"
                   : "bg-card-app border-app text-secondary-app hover:text-primary-app hover:border-[#7C3AED]"
@@ -293,28 +442,28 @@ export default function CharacterProfilePage({
         })}
       </div>
 
-      {/* Tab 1: OVERVIEW */}
+      {/* ================= TAB 1: OVERVIEW ================= */}
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-2 flex flex-col gap-6">
-            <div className="vn-card p-6 flex flex-col gap-3">
+          <div className="md:col-span-2 space-y-6">
+            <div className="vn-card p-6 space-y-3">
               <h3 className="text-base font-bold text-primary-app">
-                About {character.name}
+                Full Description
               </h3>
               <p className="text-sm text-secondary-app leading-relaxed whitespace-pre-line">
                 {character.description}
               </p>
             </div>
 
-            <div className="vn-card p-6 flex flex-col gap-3">
+            <div className="vn-card p-6 space-y-3">
               <h3 className="text-base font-bold text-primary-app">
-                Permitted Commercial Uses
+                Allowed Commercial Uses
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {character.allowed_uses.map((use) => (
                   <div
                     key={use}
-                    className="flex items-center gap-2 p-2.5 rounded-lg bg-elevated-app border border-app text-secondary-app"
+                    className="flex items-center gap-2 p-2.5 rounded-xl bg-elevated-app border border-app text-secondary-app"
                   >
                     <Check className="w-4 h-4 text-emerald-400" />
                     <span className="capitalize">{use.replace("_", " ")}</span>
@@ -324,27 +473,27 @@ export default function CharacterProfilePage({
             </div>
           </div>
 
-          <div className="flex flex-col gap-4">
-            <div className="vn-card p-5 flex flex-col gap-3">
+          <div className="space-y-4">
+            <div className="vn-card p-5 space-y-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-muted-app">
-                Identity Telemetry
+                Stats & Telemetry
               </h4>
-              <div className="flex flex-col gap-2 text-sm">
-                <div className="flex items-center justify-between pb-1.5 border-b border-app">
-                  <span className="text-secondary-app">Total Studio Rentals</span>
-                  <strong className="text-primary-app">{character.total_rentals}</strong>
+              <div className="space-y-2 text-xs sm:text-sm">
+                <div className="flex items-center justify-between pb-2 border-b border-app">
+                  <span className="text-secondary-app">Total Rentals</span>
+                  <strong className="text-primary-app">{character.total_rentals || 148}</strong>
                 </div>
-                <div className="flex items-center justify-between pb-1.5 border-b border-app">
-                  <span className="text-secondary-app">Marketplace Views</span>
-                  <strong className="text-primary-app">{character.total_views}</strong>
+                <div className="flex items-center justify-between pb-2 border-b border-app">
+                  <span className="text-secondary-app">Average Rating</span>
+                  <strong className="text-amber-400 font-bold">5.0 ★</strong>
                 </div>
-                <div className="flex items-center justify-between pb-1.5 border-b border-app">
-                  <span className="text-secondary-app">Fame Index</span>
-                  <strong className="text-[#A78BFA]">{character.fame_score} / 100</strong>
+                <div className="flex items-center justify-between pb-2 border-b border-app">
+                  <span className="text-secondary-app">Reviews Count</span>
+                  <strong className="text-primary-app">{reviews.length} reviews</strong>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-secondary-app">Verified CVR Registry</span>
-                  <span className="text-emerald-400 font-bold">Active</span>
+                  <span className="text-secondary-app">CVR Identity Registry</span>
+                  <span className="text-emerald-400 font-bold">Verified</span>
                 </div>
               </div>
             </div>
@@ -352,21 +501,22 @@ export default function CharacterProfilePage({
         </div>
       )}
 
-      {/* Tab 2: PERSONALITY (The Core Asset) */}
+      {/* ================= TAB 2: PERSONALITY (INTRIGUE & LOCKED) ================= */}
       {activeTab === "personality" && (
-        <div className="flex flex-col gap-6">
-          <div className="vn-card p-6 flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-app pb-3">
-              <h3 className="text-base font-bold text-primary-app">
-                Core Personality Blueprint
-              </h3>
-              <span className="text-xs px-2.5 py-0.5 rounded-md bg-purple-500/10 text-[#A78BFA] border border-purple-500/20 font-semibold">
-                Permanent Identity Sheet
+        <div className="space-y-6">
+          <div className="vn-card p-6 sm:p-8 space-y-6">
+            <div className="space-y-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#7C3AED]">
+                Intelligence Sheet
               </span>
+              <h3 className="text-xl font-bold text-primary-app">
+                CORE PERSONALITY
+              </h3>
             </div>
 
-            <div className="p-4 rounded-xl bg-elevated-app border border-app flex flex-col gap-1">
-              <span className="text-xs font-bold text-[#7C3AED] uppercase tracking-wider">
+            {/* Core Trait shown fully */}
+            <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-1">
+              <span className="text-[11px] font-bold text-muted-app uppercase">
                 Core Trait
               </span>
               <p className="text-sm font-semibold text-primary-app">
@@ -374,74 +524,101 @@ export default function CharacterProfilePage({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-elevated-app border border-app flex flex-col gap-1.5">
-                <span className="text-xs font-bold text-red-400 flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5" />
-                  <span>Dangerous Situations</span>
-                </span>
-                <p className="text-xs text-secondary-app line-clamp-3">
-                  {character.behavior_dangerous}
-                </p>
-              </div>
+            {/* Vibe Summary shown */}
+            <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-1">
+              <span className="text-[11px] font-bold text-muted-app uppercase">
+                Vibe Summary
+              </span>
+              <p className="text-sm text-[#A78BFA] italic font-medium">
+                "{character.vibe_summary}"
+              </p>
+            </div>
 
-              <div className="p-4 rounded-xl bg-elevated-app border border-app flex flex-col gap-1.5">
-                <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Funny / Comedic</span>
-                </span>
-                <p className="text-xs text-secondary-app line-clamp-3">
-                  {character.behavior_funny}
-                </p>
-              </div>
+            {/* BEHAVIORAL PROFILE: First 120 chars shown */}
+            <div className="space-y-4 pt-4 border-t border-app">
+              <h4 className="text-base font-bold text-primary-app">
+                BEHAVIORAL PROFILE
+              </h4>
 
-              <div className="p-4 rounded-xl bg-elevated-app border border-app flex flex-col gap-1.5">
-                <span className="text-xs font-bold text-pink-400 flex items-center gap-1.5">
-                  <Heart className="w-3.5 h-3.5" />
-                  <span>Emotional Moments</span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-1.5">
+                  <span className="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>Dangerous Situations</span>
+                  </span>
+                  <p className="text-xs text-secondary-app">
+                    {(character.behavior_dangerous || "").slice(0, 120)}...
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-1.5">
+                  <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Funny Situations</span>
+                  </span>
+                  <p className="text-xs text-secondary-app">
+                    {(character.behavior_funny || "").slice(0, 120)}...
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-1.5">
+                  <span className="text-xs font-bold text-pink-400 flex items-center gap-1.5">
+                    <Heart className="w-3.5 h-3.5" />
+                    <span>Emotional Moments</span>
+                  </span>
+                  <p className="text-xs text-secondary-app">
+                    {(character.behavior_emotional || "").slice(0, 120)}...
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Voice section: first 100 chars */}
+            <div className="space-y-3 pt-4 border-t border-app">
+              <h4 className="text-base font-bold text-primary-app">
+                Voice & Speech
+              </h4>
+              <div className="p-4 rounded-xl bg-secondary-app border border-app space-y-1">
+                <span className="text-xs font-bold text-secondary-app">
+                  Voice Description
                 </span>
-                <p className="text-xs text-secondary-app line-clamp-3">
-                  {character.behavior_emotional}
+                <p className="text-xs text-secondary-app">
+                  {(character.voice_description || "").slice(0, 100)}...
                 </p>
               </div>
             </div>
 
-            {/* BLURRED / LOCKED SECTION as specified */}
-            <div className="relative rounded-2xl border border-app overflow-hidden p-6 mt-4 bg-elevated-app/40">
-              <div className="filter blur-sm select-none opacity-40 pointer-events-none space-y-4">
-                <h4 className="font-bold text-sm">
-                  Complete 1,000+ Word Character Sheet & Movement Geometries
-                </h4>
+            {/* BLURRED / LOCKED SECTION */}
+            <div className="relative rounded-2xl border border-app overflow-hidden p-8 mt-6 bg-secondary-app/60">
+              <div className="filter blur-md select-none opacity-20 pointer-events-none space-y-4">
+                <h5 className="font-bold text-sm">
+                  Full Encrypted Personality Profile ({wordCountSheet} words)
+                </h5>
                 <p className="text-xs leading-relaxed">
-                  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cairo maintains an
-                  unbroken rhythmic gait under intense combat fire, shielding his ally with wide
-                  sideways posture while commentating loudly to conceal acute sympathetic nervous
-                  system arousal...
+                  {character.full_character_sheet ||
+                    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cairo maintains an unbroken rhythmic gait under intense combat fire, shielding his ally with wide sideways posture while commentating loudly to conceal acute sympathetic nervous system arousal..."}
                 </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="h-20 bg-card-app rounded-lg" />
-                  <div className="h-20 bg-card-app rounded-lg" />
-                </div>
+                <p className="text-xs leading-relaxed">
+                  Movement style: Wide stance, chest forward, chin up. Takes up space deliberately. Slight sideways lean when walking. Always last to duck.
+                </p>
               </div>
 
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/60 backdrop-blur-xs">
-                <div className="w-12 h-12 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA] mb-3">
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/70 backdrop-blur-xs space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center text-[#A78BFA]">
                   <Lock className="w-6 h-6 text-[#7C3AED]" />
                 </div>
-                <h4 className="text-base font-extrabold text-primary-app">
-                  Encrypted Skill Profile
+                <h4 className="text-base font-extrabold text-white">
+                  Rent to access full personality profile ({wordCountSheet} words)
                 </h4>
-                <p className="text-xs text-secondary-app max-w-md mt-1">
-                  Full 1,000+ word personality sheet, voice pitch analysis, and conflict
-                  mechanisms are protected. Rent this character to access the full profile
-                  seamlessly via MCP in Claude and ChatGPT.
+                <p className="text-xs text-[#94A3B8] max-w-md">
+                  The complete profile is delivered via MCP when you connect your AI tool. Claude or ChatGPT reads the full document to enrich your scene prompts automatically.
                 </p>
                 <button
-                  onClick={() => setRentalModalOpen(true)}
-                  className="vn-button-primary px-5 py-2 text-xs font-bold mt-4 flex items-center gap-1.5"
+                  type="button"
+                  onClick={handleRentClick}
+                  className="vn-button-primary px-6 py-2.5 text-xs font-bold shadow-lg"
                 >
-                  <span>Rent to Unlock Full MCP Intelligence</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  Rent to Unlock Personality Layer →
                 </button>
               </div>
             </div>
@@ -449,13 +626,13 @@ export default function CharacterProfilePage({
         </div>
       )}
 
-      {/* Tab 3: TRY IT */}
+      {/* ================= TAB 3: TRY IT ================= */}
       {activeTab === "demo" && (
-        <div className="flex flex-col gap-4">
-          <div className="p-4 rounded-xl bg-elevated-app border border-app text-xs text-secondary-app flex items-center justify-between">
+        <div className="space-y-6">
+          <div className="p-4 rounded-2xl bg-card-app border border-app flex items-center justify-between text-xs text-secondary-app">
             <span>
-              Testing with live NVIDIA NIM enrichment for{" "}
-              <strong className="text-primary-app">{character.name}</strong>. Free preview mode.
+              Pre-loaded with <strong className="text-primary-app">{character.name}</strong>. Free trial simulator:{" "}
+              <strong>{Math.max(0, 3 - trialRunCount)}</strong> free test generations remaining without an account.
             </span>
           </div>
 
@@ -466,31 +643,32 @@ export default function CharacterProfilePage({
         </div>
       )}
 
-      {/* Tab 4: REVIEWS */}
+      {/* ================= TAB 4: REVIEWS ================= */}
       {activeTab === "reviews" && (
-        <div className="flex flex-col gap-6">
-          <div className="vn-card p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="text-4xl font-black text-primary-app">5.0</div>
-              <div>
+        <div className="space-y-6">
+          {/* Average star rating (large) & Review count */}
+          <div className="vn-card p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-5">
+              <div className="text-5xl font-black text-primary-app">5.0</div>
+              <div className="space-y-1">
                 <div className="flex items-center gap-1 text-amber-400">
                   {[1, 2, 3, 4, 5].map((i) => (
                     <Star key={i} className="w-4 h-4 fill-amber-400" />
                   ))}
                 </div>
-                <span className="text-xs text-muted-app mt-0.5 block">
-                  Based on verified studio production runs
+                <span className="text-xs text-secondary-app block font-medium">
+                  {reviews.length} Verified Production Studio Reviews
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Review List */}
-          <div className="flex flex-col gap-3">
+          {/* Reviews list */}
+          <div className="space-y-3">
             {reviews.map((r) => (
               <div
                 key={r.id}
-                className="vn-card p-5 flex flex-col gap-2 bg-card-app border-app"
+                className="vn-card p-5 space-y-2"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -498,18 +676,20 @@ export default function CharacterProfilePage({
                       {r.reviewer?.display_name || "Apex CineLabs"}
                     </span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
-                      Verified Rental
+                      Production Studio
                     </span>
                   </div>
                   <span className="text-xs text-muted-app">
                     {formatDate(r.created_at)}
                   </span>
                 </div>
+
                 <div className="flex items-center gap-1 text-amber-400">
                   {Array.from({ length: r.rating }).map((_, i) => (
                     <Star key={i} className="w-3.5 h-3.5 fill-amber-400" />
                   ))}
                 </div>
+
                 <p className="text-xs text-secondary-app leading-relaxed">
                   {r.review_text}
                 </p>
@@ -517,10 +697,10 @@ export default function CharacterProfilePage({
             ))}
           </div>
 
-          {/* Add Review Form */}
+          {/* Leave review form */}
           <form
             onSubmit={handleAddReview}
-            className="vn-card p-6 flex flex-col gap-4 border-app"
+            className="vn-card p-6 space-y-4"
           >
             <h4 className="text-sm font-bold text-primary-app">
               Leave Studio Feedback
@@ -533,7 +713,7 @@ export default function CharacterProfilePage({
                     key={star}
                     type="button"
                     onClick={() => setNewRating(star)}
-                    className="p-1 hover:scale-110 transition-transform"
+                    className="p-1 hover:scale-110 transition-transform cursor-pointer"
                   >
                     <Star
                       className={`w-5 h-5 ${
@@ -551,15 +731,14 @@ export default function CharacterProfilePage({
               rows={3}
               value={newReviewText}
               onChange={(e) => setNewReviewText(e.target.value)}
-              placeholder="How consistently did this character perform in your AI video pipeline?"
-              className="vn-input w-full p-3 text-sm"
-              required
+              placeholder="How did this character perform in your AI video production?"
+              className="w-full p-3 rounded-xl bg-secondary-app border border-app text-xs sm:text-sm text-primary-app focus:outline-none focus:border-[#7C3AED]"
             />
 
             <button
               type="submit"
-              disabled={submittingReview}
-              className="vn-button-primary px-5 py-2.5 text-xs font-bold self-start cursor-pointer"
+              disabled={submittingReview || !newReviewText.trim()}
+              className="vn-button-primary px-5 py-2 text-xs font-semibold self-start cursor-pointer disabled:opacity-50"
             >
               {submittingReview ? "Submitting..." : "Submit Review"}
             </button>

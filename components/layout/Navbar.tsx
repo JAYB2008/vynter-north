@@ -19,7 +19,9 @@ import {
   Menu,
   X,
   Settings,
+  Bell,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 
 export function Navbar() {
@@ -112,9 +114,20 @@ export function Navbar() {
           )}
 
           {/* Desktop Auth State */}
-          <div className="hidden sm:flex items-center">
+          <div className="hidden sm:flex items-center gap-2">
             {isAuthenticated && user ? (
-              <div className="relative">
+              <>
+                <button
+                  type="button"
+                  aria-label="Notifications"
+                  onClick={() => toast.info("No unread character rental alerts.")}
+                  className="p-2 rounded-lg border border-app bg-elevated-app text-secondary-app hover:text-primary-app transition-colors relative cursor-pointer"
+                >
+                  <Bell className="w-4 h-4" />
+                  <span className="w-2 h-2 rounded-full bg-[#7C3AED] absolute top-1.5 right-1.5 ring-2 ring-[#08080F]" />
+                </button>
+
+                <div className="relative">
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   className="flex items-center gap-2 p-1.5 rounded-lg border border-app bg-elevated-app hover:border-[#7C3AED] transition-all cursor-pointer"
@@ -158,8 +171,28 @@ export function Navbar() {
                         className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-elevated-app text-secondary-app hover:text-primary-app"
                       >
                         <LayoutDashboard className="w-4 h-4 text-[#7C3AED]" />
-                        <span>Dashboard</span>
+                        <span>My Dashboard</span>
                       </Link>
+
+                      {user.role === "creator" ? (
+                        <Link
+                          href="/dashboard/characters"
+                          onClick={() => setDropdownOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-elevated-app text-secondary-app hover:text-primary-app"
+                        >
+                          <User className="w-4 h-4 text-[#7C3AED]" />
+                          <span>My Characters</span>
+                        </Link>
+                      ) : (
+                        <Link
+                          href="/dashboard/rentals"
+                          onClick={() => setDropdownOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-elevated-app text-secondary-app hover:text-primary-app"
+                        >
+                          <ShieldCheck className="w-4 h-4 text-[#7C3AED]" />
+                          <span>My Rentals</span>
+                        </Link>
+                      )}
 
                       <Link
                         href="/dashboard/settings"
@@ -183,6 +216,7 @@ export function Navbar() {
                   </>
                 )}
               </div>
+              </>
             ) : (
               <div className="flex items-center gap-2">
                 <Link

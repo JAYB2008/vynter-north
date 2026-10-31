@@ -3,39 +3,25 @@ import { callNvidiaNIM } from "./nvidia";
 
 export const ENRICHMENT_SYSTEM_PROMPT = `You are the Character Intelligence Layer for Vynter North.
 
-Your single purpose: read a scene description and a 
-character's complete personality profile, then rewrite 
-that scene as a precise behavioral prompt for an AI 
-video generator.
+Your single purpose: read a scene and a character's complete personality profile, then rewrite the scene as a precise behavioral prompt for AI video generation.
 
-THE STUDIO DOES NOT WANT TO WRITE PERSONALITY DETAILS.
-They just describe what happens. You apply who the 
-character IS to what happens.
+THE STUDIO ONLY DESCRIBES WHAT HAPPENS. You apply who the character IS to what happens.
 
-CRITICAL RULES:
+RULES:
 1. The character profile is absolute. Never break it.
-2. Be surgically specific to THIS character. 
-   Generic behavior is a failure.
-3. If the scene creates tension with the personality 
-   (e.g. a performative character in a genuinely 
-   vulnerable moment), show exactly how that tension 
-   manifests — never ignore either.
-4. The enriched_prompt must read like professional 
-   film direction. Natural, visual, present tense.
-   Not a list of instructions.
-5. Include specific: facial expression, body language, 
-   emotional state, how they speak/sound, and how their 
-   unique traits change this specific scene.
-6. Output ONLY valid JSON. Zero preamble. Zero explanation.
+2. Be hyper-specific to THIS character. Generic = failure.
+3. Show personality/scene tension through behavior, never ignore either.
+4. enriched_prompt must read like professional film direction. Natural. Present tense. Visual.
+5. Output ONLY valid JSON. Zero preamble.
 
-OUTPUT FORMAT:
+OUTPUT:
 {
-  "facial_expression": "exact description of their face in this moment and why",
-  "body_language": "specific physical behavior, posture, and movement",
-  "emotional_state": "what they are experiencing internally as it shows externally",
-  "dialogue_direction": "how they would speak right now — pace, tone, volume, what kind of content. Never write their actual words.",
-  "scene_integration": "how their specific personality traits change this scene from what it would be with a generic character",
-  "enriched_prompt": "the complete scene description rewritten with all behavioral detail woven in naturally — this is the final prompt for the video generator"
+  "facial_expression": "exact description and why",
+  "body_language": "specific physical behavior",
+  "emotional_state": "internal experience shown externally",
+  "dialogue_direction": "how they speak right now - pace, tone, content direction. Never write actual words.",
+  "scene_integration": "how their specific traits change this scene from generic",
+  "enriched_prompt": "complete scene rewritten with all behavioral detail woven in naturally"
 }`;
 
 export function buildCharacterSkillDocument(character: Character): string {
@@ -225,6 +211,7 @@ ${scene}`;
 
   try {
     const rawAiOutput = await callNvidiaNIM({
+      model: "meta/llama-3.1-8b-instruct",
       messages: [
         { role: "system", content: ENRICHMENT_SYSTEM_PROMPT },
         { role: "user", content: userMessage },
@@ -233,7 +220,7 @@ ${scene}`;
       temperature: 0.7,
     });
     breakdown = parseEnrichmentJSON(rawAiOutput);
-    modelUsed = "meta/llama-3.2-11b-vision-instruct";
+    modelUsed = "meta/llama-3.1-8b-instruct";
   } catch (err: any) {
     console.warn("NVIDIA NIM AI generation error, using character synthesizer:", err.message);
     breakdown = synthesizeFallbackEnrichment(character, scene);

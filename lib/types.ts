@@ -22,7 +22,7 @@ export interface Profile {
   updated_at?: string;
 }
 
-export type CharacterStatus = "active" | "paused" | "sold" | "deleted";
+export type CharacterStatus = "draft" | "active" | "paused" | "sold" | "deleted";
 
 export interface Character {
   id: string;
@@ -90,7 +90,7 @@ export interface Character {
   skills?: any;
 }
 
-export type RentalType = "daily" | "weekly" | "monthly" | "purchase" | "free";
+export type RentalType = "trial" | "daily" | "weekly" | "monthly" | "purchase" | "free";
 export type RentalStatus = "active" | "expired" | "cancelled";
 
 export interface Rental {
@@ -116,6 +116,7 @@ export type SkillCategory =
   | "movement"
   | "dialogue"
   | "genre"
+  | "genre_pack"
   | "full_template";
 
 export interface SkillTemplate {
@@ -124,10 +125,13 @@ export interface SkillTemplate {
   title: string;
   description: string;
   category: SkillCategory;
+  preview_text?: string;
   content: string;
   price: number;
   is_free: boolean;
   purchases: number;
+  word_count?: number;
+  tags?: string[];
   created_at: string;
 
   creator?: Profile;
@@ -139,7 +143,10 @@ export interface Review {
   reviewer_id: string;
   rental_id?: string | null;
   rating: number;
+  title?: string | null;
   review_text: string | null;
+  would_rent_again?: boolean;
+  production_type?: string | null;
   created_at: string;
 
   reviewer?: Profile;

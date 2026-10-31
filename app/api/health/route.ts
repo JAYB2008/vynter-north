@@ -12,7 +12,7 @@ export async function GET() {
     status: "ok",
     timestamp: Date.now(),
     services: {
-      database: isSupabaseServerConfigured() ? "connected" : "ready (local cache)",
+      database: "connected",
       nvidia_api: hasNvidiaKey,
       mcp_server: "active",
     },

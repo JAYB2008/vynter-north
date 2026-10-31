@@ -98,6 +98,14 @@ export function CharacterCard({ character, onTryDemo }: CharacterCardProps) {
           {character.description}
         </p>
 
+        {/* Creator Name & Link */}
+        <div className="flex items-center justify-between text-xs text-secondary-app">
+          <span className="text-[11px] text-muted-app">Creator</span>
+          <span className="font-medium hover:text-[#7C3AED] transition-colors">
+            {character.owner?.display_name || "Elena Vance"}
+          </span>
+        </div>
+
         {/* Pricing & Actions */}
         <div className="pt-2 border-t border-app flex items-center justify-between mt-auto">
           <div>
@@ -117,7 +125,7 @@ export function CharacterCard({ character, onTryDemo }: CharacterCardProps) {
                 title="Test with demo scene"
               >
                 <Sparkles className="w-3.5 h-3.5 text-[#7C3AED]" />
-                <span>Demo</span>
+                <span>Try Demo</span>
               </button>
             ) : (
               <Link
@@ -125,7 +133,7 @@ export function CharacterCard({ character, onTryDemo }: CharacterCardProps) {
                 className="px-2.5 py-1.5 rounded-md border border-app hover:border-[#7C3AED] bg-elevated-app text-xs font-semibold text-secondary-app hover:text-primary-app flex items-center gap-1 transition-all"
               >
                 <Sparkles className="w-3.5 h-3.5 text-[#7C3AED]" />
-                <span>Demo</span>
+                <span>Try Demo</span>
               </Link>
             )}
 
@@ -133,7 +141,7 @@ export function CharacterCard({ character, onTryDemo }: CharacterCardProps) {
               href={`/marketplace/${character.id}`}
               className="px-3 py-1.5 rounded-md bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
             >
-              <span>View</span>
+              <span>View Character</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>

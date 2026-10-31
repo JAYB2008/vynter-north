@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     const rental = await createRental({
       character_id,
       studio_id: finalStudioId,
-      rental_type: rental_type === "trial" ? "free" : rental_type,
+      rental_type: rental_type as any,
       price_paid: pricePaid,
       generation_credits: credits,
     });

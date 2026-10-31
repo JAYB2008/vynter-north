@@ -1,20 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer, isSupabaseServerConfigured } from "@/lib/supabase-server";
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get("code");
+export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url);
+  const code = searchParams.get("code");
 
-  if (code && isSupabaseServerConfigured()) {
-    try {
-      await supabaseServer.auth.exchangeCodeForSession(code);
-    } catch (e) {
-      console.warn("Auth exchange code error:", e);
+  if (code) {
+    const supabase = await createClient();
+    const { error, data } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (!error && data.user) {
+      // Check if user has completed onboarding
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("onboarding_completed")
+        .eq("id", data.user.id)
+        .single();
+
+      if (profile?.onboarding_completed) {
+        return NextResponse.redirect(`${origin}/dashboard`);
+      }
+      return NextResponse.redirect(`${origin}/onboarding`);
     }
   }
 
-  // Redirect to onboarding or dashboard
-  return NextResponse.redirect(new URL("/onboarding", request.url));
+  return NextResponse.redirect(`${origin}/login?error=auth-callback-failed`);
 }

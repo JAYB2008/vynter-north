@@ -219,9 +219,11 @@ export async function handleMcpRpc(body: any) {
           content: [
             {
               type: "text",
-              text: `CHARACTER VERIFICATION: ${character.name}\nID: ${character.id}\nVibe: ${character.vibe_summary}\nStatus: ${status}\nCredits Remaining: ${credits}\nAllowed Uses: ${character.allowed_uses.join(
-                ", "
-              )}`,
+              text: `CHARACTER VERIFICATION: ${character.name}\nID: ${character.id}\nVibe: ${character.vibe_summary}\nStatus: ${status}\nCredits Remaining: ${credits}\nExpiry Date: ${
+                rental?.expires_at
+                  ? new Date(rental.expires_at).toLocaleDateString()
+                  : "Permanent / Free"
+              }\nAllowed Uses: ${character.allowed_uses.join(", ")}`,
             },
           ],
         },
@@ -261,23 +263,19 @@ export async function handleMcpRpc(body: any) {
       const enriched = await enrichScene({ character, scene });
       const b = enriched.behavior_breakdown;
 
-      const outputText = `CHARACTER INTELLIGENCE COMPLETE
+      const outputText = `CHARACTER INTELLIGENCE — ${character.name}
 
-Character: ${character.name} (${character.id})
-Vibe: ${character.vibe_summary}
-
-ENRICHED PROMPT FOR VIDEO GENERATOR:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENRICHED PROMPT:
+━━━━━━━━━━━━━
 ${enriched.enriched_prompt}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━
 
-BEHAVIOR BREAKDOWN:
 Face: ${b.facial_expression}
 Body: ${b.body_language}
 Internal: ${b.emotional_state}
-Speech: ${b.dialogue_direction}
+Voice: ${b.dialogue_direction}
 
-Word count: ${enriched.word_count.original} → ${enriched.word_count.enriched} (${enriched.word_count.multiplier}x enrichment)`;
+${enriched.word_count.original} words → ${enriched.word_count.enriched} words (${enriched.word_count.multiplier}x enrichment)`;
 
       return {
         jsonrpc: "2.0",

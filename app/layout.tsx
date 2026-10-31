@@ -14,6 +14,7 @@ const inter = Inter({
   display: "swap",
 });
 
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Vynter North — The Character Intelligence Layer for AI Entertainment",
   description:

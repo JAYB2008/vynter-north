@@ -11,28 +11,19 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
-    const { audioUrl, notes } = body;
+    const voice_sample_url = body.voice_sample_url || body.audioUrl;
+    const { notes } = body;
 
     const character = await getCharacterById(id);
 
     const systemPrompt =
-      "You analyze voice recordings and produce detailed text descriptions of vocal characteristics for use in AI character systems. Be specific and technical about pitch, tone, pace, accent, and distinctive qualities.";
+      "Generate a detailed voice description for an AI character system based on what we know. The creator has recorded a voice sample. Generate a professional voice description covering: pitch, tone quality, speaking pace, accent markers, emotional baseline, distinctive qualities, how the voice changes under stress. Make it specific and usable for instructing AI video generation tools.";
 
-    const userPrompt = `A creator has uploaded a voice sample for their AI character ${
-      character ? `'${character.name}'` : ""
-    }. Based on typical voice samples and creator direction, generate a detailed voice sheet description covering:
-- Pitch (high/medium/low, specific qualities)
-- Tone (warm/cold/gravelly/smooth/etc)
-- Pace (fast/slow/deliberate/scattered, estimated words per minute)
-- Accent or dialect markers
-- Emotional baseline (what emotion the voice naturally conveys even when neutral)
-- Distinctive qualities (what makes this voice recognizable and memorable)
-- How the voice changes under stress or emotion
-
-The description will be used to instruct AI systems on how to portray this character's voice in generated content. Make it specific and usable.
-
-Creator's notes about their character's voice: ${notes || "No extra notes provided."}
-${audioUrl ? `Audio reference URL: ${audioUrl}` : ""}`;
+    const userPrompt = `Character Name: ${character ? character.name : "AI Character"}
+Existing Voice Profile: ${character?.voice_description || "Not specified"}
+Speaking Style: ${character?.speaking_style || "Not specified"}
+Voice Sample URL: ${voice_sample_url || "Uploaded reference"}
+${notes ? `Creator Notes: ${notes}` : ""}`;
 
     let analyzedText = "";
     try {
@@ -58,14 +49,15 @@ Stress Modulation: Delivery tightens and pitch climbs 20Hz under immediate physi
     if (character) {
       await updateCharacter(character.id, {
         voice_analyzed_description: analyzedText,
-        voice_sample_url: audioUrl || character.voice_sample_url,
+        voice_sample_url: voice_sample_url || character.voice_sample_url,
       });
     }
 
     return NextResponse.json({
       success: true,
+      description: analyzedText,
       voice_analyzed_description: analyzedText,
-      note: "Review this description carefully. Edit it to match what you actually hear in your recording.",
+      note: "Review carefully. Edit to match what you actually hear in your recording.",
     });
   } catch (err: any) {
     return NextResponse.json(
