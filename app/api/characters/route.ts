@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllCharacters, createCharacter } from "@/lib/db";
+import { getCharacters, createCharacterDraft } from "@/lib/db";
+import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,14 +9,58 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const genre = searchParams.get("genre") || undefined;
     const search = searchParams.get("search") || undefined;
-    const type = searchParams.get("type") || undefined;
+    const status = searchParams.get("status") || "active";
     const sort = searchParams.get("sort") || undefined;
+    const tier = searchParams.get("tier") || undefined;
+    const price_filter = searchParams.get("price_filter") || undefined;
+    const is_featured = searchParams.get("is_featured") === "true" ? true : undefined;
+    const is_demo = searchParams.get("is_demo") === "true" ? true : undefined;
+    const owner_id = searchParams.get("owner_id") || undefined;
 
-    const characters = await getAllCharacters({ genre, search, type, sort });
-    return NextResponse.json({ characters });
+    const session = await getSession();
+
+    // If fetching for creator's own dashboard (owner_id matching session), allow drafts/all statuses
+    const filterStatus = owner_id && session && session.id === owner_id ? undefined : status;
+
+    const rawCharacters = await getCharacters({
+      genre,
+      search,
+      status: filterStatus,
+      sort,
+      tier,
+      price_filter,
+      is_featured,
+      is_demo,
+      owner_id,
+    });
+
+    // Sanitization rule: Never render full sheet on public catalog
+    const characters = rawCharacters.map((c) => {
+      const isOwner = session && (session.id === c.owner_id || session.username === "admin");
+      if (isOwner) return c;
+
+      // Public view: redact full_sheet and internal behavior fields
+      return {
+        ...c,
+        full_sheet: "", // Private
+        behavior_social: null,
+        behavior_conflict: null,
+      };
+    });
+
+    return NextResponse.json({
+      ok: true,
+      data: { characters },
+    });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Failed to fetch characters" },
+      {
+        ok: false,
+        error: {
+          code: "CHARACTERS_FETCH_FAILED",
+          message: err.message || "Failed to fetch characters",
+        },
+      },
       { status: 500 }
     );
   }
@@ -23,19 +68,36 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    if (!body.name || !body.vibe_summary || !body.full_character_sheet) {
+    const session = await getSession();
+    if (!session) {
       return NextResponse.json(
-        { error: "Character name, vibe summary, and full character sheet are required." },
-        { status: 400 }
+        {
+          ok: false,
+          error: {
+            code: "UNAUTHORIZED",
+            message: "You must be signed in to create a character.",
+          },
+        },
+        { status: 401 }
       );
     }
 
-    const newCharacter = await createCharacter(body);
-    return NextResponse.json({ success: true, character: newCharacter });
+    const body = await req.json().catch(() => ({}));
+    const newCharacter = await createCharacterDraft(session.id, body);
+
+    return NextResponse.json({
+      ok: true,
+      data: { character: newCharacter },
+    });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Failed to create character" },
+      {
+        ok: false,
+        error: {
+          code: "CHARACTER_CREATION_FAILED",
+          message: err.message || "Failed to create character draft.",
+        },
+      },
       { status: 500 }
     );
   }

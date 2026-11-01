@@ -1,64 +1,59 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import { Metadata } from "next";
 import Link from "next/link";
-import { Sparkles, Bot, ArrowRight } from "lucide-react";
+import { Sparkles, ArrowRight, ShieldCheck } from "lucide-react";
 import { DemoInterface } from "@/components/demo/DemoInterface";
-import { Character, Rental } from "@/lib/types";
-import { useAuth } from "@/lib/auth-context";
+import { getCharacters } from "@/lib/db";
+import { getSession, isAdmin } from "@/lib/auth";
 
-export default function DemoPage() {
-  const { user, isAuthenticated } = useAuth();
-  const [characters, setCharacters] = useState<Character[]>([]);
+export const dynamic = "force-dynamic";
 
-  useEffect(() => {
-    fetch("/api/characters?status=all")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.characters) setCharacters(d.characters);
-      })
-      .catch((e) => console.warn(e));
+export const metadata: Metadata = {
+  title: "Interactive Intelligence Demo — Vynter North",
+  description:
+    "Test how Vynter North applies character personality to raw scene descriptions in real time.",
+};
 
-    // If logged in, also fetch studio's rented characters to include in dropdown
-    if (isAuthenticated) {
-      fetch("/api/rentals")
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.rentals) {
-            const rentedChars = data.rentals
-              .map((r: Rental) => r.character)
-              .filter(Boolean);
-            if (rentedChars.length > 0) {
-              setCharacters((prev) => {
-                const map = new Map<string, Character>();
-                [...rentedChars, ...prev].forEach((c) => map.set(c.id, c));
-                return Array.from(map.values());
-              });
-            }
-          }
-        })
-        .catch((e) => console.warn(e));
-    }
-  }, [isAuthenticated]);
+export default async function DemoPage() {
+  const session = await getSession();
+  const admin = isAdmin(session);
+  const demoCharacters = await getCharacters({ is_demo: true });
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex flex-col gap-10">
-      {/* Header & Subtext */}
-      <div className="text-center max-w-3xl mx-auto flex flex-col items-center gap-3">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-xs font-bold text-[#A78BFA]">
+    <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8 space-y-8">
+      {/* Page Header */}
+      <div className="text-center max-w-3xl mx-auto space-y-3">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-[4px] bg-[var(--glacier)]/10 border border-[var(--glacier)]/30 text-xs font-mono text-[var(--glacier)]">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>No Login Required</span>
+          <span>Interactive Intelligence Board</span>
         </div>
-        <h1 className="text-3xl sm:text-5xl font-black text-primary-app tracking-tight">
-          Try the Character Intelligence Layer
+        <h1 className="font-serif text-4xl sm:text-5xl text-[var(--text)] tracking-tight">
+          Test the Character Intelligence Layer
         </h1>
-        <p className="text-sm sm:text-base text-secondary-app max-w-xl">
-          Type any scene. See how character personality is automatically applied.
+        <p className="text-sm sm:text-base text-[var(--text-dim)] leading-relaxed">
+          Type what happens. The character sheet is read on our server, relevant behavioral traits are retrieved, and camera-ready acting direction is returned.
         </p>
       </div>
 
-      {/* Demo Interface */}
-      <DemoInterface initialCharacters={characters} />
+      {/* Main Demo Board */}
+      <DemoInterface initialCharacters={demoCharacters} isAdmin={admin} />
+
+      {/* Footer Banner */}
+      <div className="p-6 bg-[var(--panel)] border border-[var(--line)] rounded-[10px] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+        <div>
+          <span className="font-semibold text-[var(--text)] block text-sm">
+            Ready to use your rented characters in Claude or ChatGPT?
+          </span>
+          <span className="text-[var(--text-dim)]">
+            Connect our remote MCP server URL to enrich scenes inside your daily AI workflow.
+          </span>
+        </div>
+        <Link
+          href="/connect"
+          className="px-5 py-2.5 bg-[var(--glacier)] text-[var(--glacier-ink)] font-semibold rounded-[6px] hover:brightness-110 shrink-0 flex items-center gap-1.5"
+        >
+          View Connect Guide <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
     </div>
   );
 }

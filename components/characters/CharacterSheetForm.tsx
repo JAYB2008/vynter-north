@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -18,43 +18,51 @@ import {
   Copy,
   Share2,
   CheckCircle2,
-  Wand2,
+  Lock,
+  ExternalLink,
+  Film,
+  Plus,
+  Trash2,
 } from "lucide-react";
-import { toast } from "sonner";
-import { Character } from "@/lib/types";
+import { Character, ReelScene } from "@/lib/types";
 import { useAuth } from "@/lib/auth-context";
+import { apiFetch } from "@/lib/api";
+import { CharacterPosterCard } from "./CharacterPosterCard";
 
 const GENRES = [
   "Action",
-  "Comedy",
   "Drama",
   "Thriller",
+  "Comedy",
   "Sci-Fi",
   "Fantasy",
   "Horror",
   "Adventure",
+  "Crime",
+  "Mystery",
   "Romance",
   "Animation",
 ];
 
-const ALLOWED_USES_OPTIONS = [
-  { id: "film", label: "Film & Short Videos" },
-  { id: "advertising", label: "Advertising & Brand Content" },
-  { id: "social_content", label: "Social Media Content" },
-  { id: "gaming", label: "Game Development (NPC use)" },
-  { id: "vr", label: "Virtual Reality" },
-  { id: "educational", label: "Educational Content" },
-  { id: "companion", label: "AI Companion Applications" },
+const ALLOWED_USES_LIST = [
+  { id: "film", label: "Film & Cinematic Videos" },
+  { id: "advertising", label: "Commercials & Brand Content" },
+  { id: "social", label: "Social Media Series" },
+  { id: "game", label: "Games & Interactive (NPCs)" },
 ];
 
 const STEPS = [
-  { id: 1, name: "Basic" },
-  { id: 2, name: "Images" },
+  { id: 1, name: "Basics" },
+  { id: 2, name: "Look" },
   { id: 3, name: "Personality" },
-  { id: 4, name: "Voice" },
-  { id: 5, name: "Pricing" },
-  { id: 6, name: "Review" },
+  { id: 4, name: "Situations" },
+  { id: 5, name: "Voice" },
+  { id: 6, name: "Pricing" },
+  { id: 7, name: "Demo Reel" },
+  { id: 8, name: "Review & Publish" },
 ];
+
+const MIN_SHEET_WORDS = 1000;
 
 interface CharacterSheetFormProps {
   initialCharacter?: Character;
@@ -68,45 +76,62 @@ export function CharacterSheetForm({
   const router = useRouter();
   const { user } = useAuth();
 
-  const [step, setStep] = useState(1);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [isSavingDraft, setIsSavingDraft] = useState(false);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishedCharacter, setPublishedCharacter] = useState<Character | null>(
-    null
+  const [characterId, setCharacterId] = useState<string>(
+    initialCharacter?.id || ""
   );
+  const [step, setStep] = useState(1);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState<Character | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
 
-  // STEP 1: Basic Info
+  // STEP 1: Basics
   const [name, setName] = useState(initialCharacter?.name || "");
-  const [nameChecking, setNameChecking] = useState(false);
-  const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
   const [vibeSummary, setVibeSummary] = useState(
     initialCharacter?.vibe_summary || ""
   );
+  const [tagline, setTagline] = useState(initialCharacter?.tagline || "");
   const [description, setDescription] = useState(
     initialCharacter?.description || ""
   );
   const [genres, setGenres] = useState<string[]>(
-    initialCharacter?.genres || ["Action", "Thriller"]
+    initialCharacter?.genres || ["Drama"]
   );
+  const [personalityTags, setPersonalityTags] = useState<string[]>(
+    initialCharacter?.personality_tags || []
+  );
+  const [tagInput, setTagInput] = useState("");
+  const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
+  const [nameNote, setNameNote] = useState<string | null>(null);
+  const [nameChecking, setNameChecking] = useState(false);
 
-  // STEP 2: Visual Identity
-  const [avatarUrl, setAvatarUrl] = useState(
-    initialCharacter?.avatar_url || ""
+  // STEP 2: Look
+  const [portraitUrl, setPortraitUrl] = useState(
+    initialCharacter?.portrait_url || initialCharacter?.avatar_url || ""
   );
-  const [referenceImages, setReferenceImages] = useState<string[]>(
-    initialCharacter?.reference_images || []
+  const [galleryUrls, setGalleryUrls] = useState<string[]>(
+    initialCharacter?.gallery_urls || initialCharacter?.reference_images || []
   );
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  // STEP 3: Personality Profile
-  // Section A: Full Character Sheet
-  const [fullCharacterSheet, setFullCharacterSheet] = useState(
-    initialCharacter?.full_character_sheet || ""
+  // STEP 3: Personality Sheet
+  const [fullSheet, setFullSheet] = useState(
+    initialCharacter?.full_sheet || ""
   );
-  // Section B: Specific Situations
-  const [behaviorDangerous, setBehaviorDangerous] = useState(
-    initialCharacter?.behavior_dangerous || ""
+  const [checkingSheet, setCheckingSheet] = useState(false);
+  const [sheetCheckResult, setSheetCheckResult] = useState<{
+    score: number;
+    suggestions: string[];
+  } | null>(
+    initialCharacter?.specificity_score
+      ? { score: initialCharacter.specificity_score, suggestions: [] }
+      : null
+  );
+
+  // STEP 4: Situations & Presence
+  const [behaviorDanger, setBehaviorDanger] = useState(
+    initialCharacter?.behavior_danger || ""
   );
   const [behaviorFunny, setBehaviorFunny] = useState(
     initialCharacter?.behavior_funny || ""
@@ -120,7 +145,6 @@ export function CharacterSheetForm({
   const [behaviorConflict, setBehaviorConflict] = useState(
     initialCharacter?.behavior_conflict || ""
   );
-  // Section C: Physical Presence
   const [physicalAppearance, setPhysicalAppearance] = useState(
     initialCharacter?.physical_appearance || ""
   );
@@ -133,6 +157,9 @@ export function CharacterSheetForm({
   const [coreTrait, setCoreTrait] = useState(
     initialCharacter?.core_trait || ""
   );
+  const [secondaryTrait, setSecondaryTrait] = useState(
+    initialCharacter?.secondary_trait || ""
+  );
   const [hiddenQuality, setHiddenQuality] = useState(
     initialCharacter?.hidden_quality || ""
   );
@@ -140,7 +167,22 @@ export function CharacterSheetForm({
     initialCharacter?.greatest_fear || ""
   );
 
-  // STEP 4: Voice & Speech Profile
+  // STEP 5: Voice Profile
+  const [voicePitch, setVoicePitch] = useState(
+    initialCharacter?.voice_pitch || "Medium"
+  );
+  const [voiceTone, setVoiceTone] = useState(
+    initialCharacter?.voice_tone || "Grounded"
+  );
+  const [voicePace, setVoicePace] = useState(
+    initialCharacter?.voice_pace || "Deliberate"
+  );
+  const [voiceAccent, setVoiceAccent] = useState(
+    initialCharacter?.voice_accent || "Standard / Neutral"
+  );
+  const [voiceBaseline, setVoiceBaseline] = useState(
+    initialCharacter?.voice_baseline || ""
+  );
   const [voiceDescription, setVoiceDescription] = useState(
     initialCharacter?.voice_description || ""
   );
@@ -150,516 +192,438 @@ export function CharacterSheetForm({
   const [verbalHabits, setVerbalHabits] = useState(
     initialCharacter?.verbal_habits || ""
   );
-  const [voiceSampleUrl, setVoiceSampleUrl] = useState(
-    initialCharacter?.voice_sample_url || ""
+  const [voiceSamplePath, setVoiceSamplePath] = useState(
+    initialCharacter?.voice_sample_path || ""
   );
-  const [voiceAnalyzedDescription, setVoiceAnalyzedDescription] = useState(
-    initialCharacter?.voice_analyzed_description || ""
-  );
-  const [analyzingVoice, setAnalyzingVoice] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
 
-  // STEP 5: Pricing & Availability
-  const [isFree, setIsFree] = useState<boolean>(
-    initialCharacter?.is_free ?? false
+  // STEP 6: Pricing & Availability
+  const [isFree, setIsFree] = useState(Boolean(initialCharacter?.is_free));
+  const [trialEnabled, setTrialEnabled] = useState(
+    initialCharacter?.trial_enabled ?? true
   );
-  const [rentalDaily, setRentalDaily] = useState<number>(
-    initialCharacter?.rental_price_daily || 15
+  const [priceDaily, setPriceDaily] = useState(
+    initialCharacter?.price_daily_cents
+      ? (initialCharacter.price_daily_cents / 100).toString()
+      : "5"
   );
-  const [rentalWeekly, setRentalWeekly] = useState<number>(
-    initialCharacter?.rental_price_weekly || 65
+  const [priceWeekly, setPriceWeekly] = useState(
+    initialCharacter?.price_weekly_cents
+      ? (initialCharacter.price_weekly_cents / 100).toString()
+      : "25"
   );
-  const [rentalMonthly, setRentalMonthly] = useState<number>(
-    initialCharacter?.rental_price_monthly || 200
-  );
-  const [isPurchasable, setIsPurchasable] = useState<boolean>(
-    Boolean(initialCharacter?.purchase_price)
-  );
-  const [purchasePrice, setPurchasePrice] = useState<number>(
-    initialCharacter?.purchase_price || 2500
+  const [priceMonthly, setPriceMonthly] = useState(
+    initialCharacter?.price_monthly_cents
+      ? (initialCharacter.price_monthly_cents / 100).toString()
+      : "75"
   );
   const [allowedUses, setAllowedUses] = useState<string[]>(
     initialCharacter?.allowed_uses || [
       "film",
       "advertising",
-      "social_content",
-      "gaming",
+      "social",
+      "game",
     ]
   );
+  const [saleEnabled, setSaleEnabled] = useState(
+    Boolean(initialCharacter?.sale_enabled)
+  );
+  const [salePrice, setSalePrice] = useState(
+    initialCharacter?.sale_price_cents
+      ? (initialCharacter.sale_price_cents / 100).toString()
+      : "750"
+  );
+  const [acceptOffers, setAcceptOffers] = useState(
+    Boolean(initialCharacter?.accept_offers)
+  );
+  const [minOffer, setMinOffer] = useState(
+    initialCharacter?.min_offer_cents
+      ? (initialCharacter.min_offer_cents / 100).toString()
+      : ""
+  );
 
-  // Word counter calculation for Full Character Sheet
-  const countWords = (text: string) => {
-    return text.trim() ? text.trim().split(/\s+/).length : 0;
-  };
-  const sheetWordCount = countWords(fullCharacterSheet);
+  // STEP 7: Reel
+  const [reelScenes, setReelScenes] = useState<
+    Array<{
+      category: string;
+      title: string;
+      scene_text: string;
+      video_url: string;
+      production_title?: string;
+      production_link?: string;
+    }>
+  >([]);
 
-  // Live name check
+  // Word count helper
+  const countWords = (text: string) =>
+    text.trim().split(/\s+/).filter(Boolean).length;
+  const sheetWordCount = countWords(fullSheet);
+
+  // Live Name Availability Check
   useEffect(() => {
-    if (!name.trim() || (isEditMode && name === initialCharacter?.name)) {
+    if (!name.trim()) {
       setNameAvailable(null);
+      setNameNote(null);
       return;
     }
-
     const timer = setTimeout(async () => {
       setNameChecking(true);
-      try {
-        const res = await fetch(
-          `/api/characters/check-name?name=${encodeURIComponent(name.trim())}`
-        );
-        const data = await res.json();
-        setNameAvailable(data.available);
-      } catch {
-        setNameAvailable(true);
-      } finally {
-        setNameChecking(false);
+      const res = await apiFetch<{
+        available: boolean;
+        note?: string;
+        message?: string;
+      }>(
+        `/api/characters/check-name?name=${encodeURIComponent(
+          name.trim()
+        )}&character_id=${characterId}`
+      );
+      setNameChecking(false);
+      if (res.ok) {
+        setNameAvailable(res.data.available);
+        setNameNote(res.data.note || null);
       }
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [name, isEditMode, initialCharacter?.name]);
+  }, [name, characterId]);
 
-  // Auto-save draft every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (name.trim()) {
-        saveDraft(true);
-      }
-    }, 30000);
-    return () => clearInterval(interval);
+  // Autosave Payload Builder
+  const buildPayload = useCallback(() => {
+    const dailyCents = Math.round((parseFloat(priceDaily) || 0) * 100);
+    const weeklyCents = Math.round((parseFloat(priceWeekly) || 0) * 100);
+    const monthlyCents = Math.round((parseFloat(priceMonthly) || 0) * 100);
+    const saleCents = Math.round((parseFloat(salePrice) || 0) * 100);
+    const minOfferCents = minOffer
+      ? Math.round(parseFloat(minOffer) * 100)
+      : null;
+
+    return {
+      name: name.trim() || "Untitled Character",
+      vibe_summary: vibeSummary.trim(),
+      tagline: tagline.trim() || null,
+      description: description.trim(),
+      genres,
+      personality_tags: personalityTags,
+      portrait_url: portraitUrl || null,
+      gallery_urls: galleryUrls,
+      full_sheet: fullSheet,
+      behavior_danger: behaviorDanger || null,
+      behavior_funny: behaviorFunny || null,
+      behavior_emotional: behaviorEmotional || null,
+      behavior_social: behaviorSocial || null,
+      behavior_conflict: behaviorConflict || null,
+      physical_appearance: physicalAppearance || null,
+      movement_style: movementStyle || null,
+      signature_gesture: signatureGesture || null,
+      core_trait: coreTrait || null,
+      secondary_trait: secondaryTrait || null,
+      hidden_quality: hiddenQuality || null,
+      greatest_fear: greatestFear || null,
+      voice_pitch: voicePitch,
+      voice_tone: voiceTone,
+      voice_pace: voicePace,
+      voice_accent: voiceAccent,
+      voice_baseline: voiceBaseline || null,
+      voice_description: voiceDescription || null,
+      speaking_style: speakingStyle || null,
+      verbal_habits: verbalHabits || null,
+      voice_sample_path: voiceSamplePath || null,
+      is_free: isFree,
+      trial_enabled: trialEnabled,
+      price_daily_cents: isFree ? 0 : dailyCents,
+      price_weekly_cents: isFree ? 0 : weeklyCents,
+      price_monthly_cents: isFree ? 0 : monthlyCents,
+      sale_enabled: saleEnabled,
+      sale_price_cents: saleEnabled ? saleCents : null,
+      accept_offers: acceptOffers,
+      min_offer_cents: minOfferCents,
+      allowed_uses: allowedUses,
+    };
   }, [
     name,
     vibeSummary,
+    tagline,
     description,
     genres,
-    avatarUrl,
-    fullCharacterSheet,
-    behaviorDangerous,
+    personalityTags,
+    portraitUrl,
+    galleryUrls,
+    fullSheet,
+    behaviorDanger,
+    behaviorFunny,
+    behaviorEmotional,
+    behaviorSocial,
+    behaviorConflict,
+    physicalAppearance,
+    movementStyle,
+    signatureGesture,
     coreTrait,
+    secondaryTrait,
+    hiddenQuality,
+    greatestFear,
+    voicePitch,
+    voiceTone,
+    voicePace,
+    voiceAccent,
+    voiceBaseline,
+    voiceDescription,
+    speakingStyle,
+    verbalHabits,
+    voiceSamplePath,
+    isFree,
+    trialEnabled,
+    priceDaily,
+    priceWeekly,
+    priceMonthly,
+    saleEnabled,
+    salePrice,
+    acceptOffers,
+    minOffer,
+    allowedUses,
   ]);
 
-  const toggleGenre = (genre: string) => {
-    if (genres.includes(genre)) {
-      setGenres(genres.filter((g) => g !== genre));
-    } else {
-      setGenres([...genres, genre]);
-    }
-  };
+  // Save Draft (Creates draft if characterId is empty, updates if exists)
+  const saveDraft = useCallback(
+    async (showIndicator = true) => {
+      if (showIndicator) setIsSavingDraft(true);
+      const payload = buildPayload();
 
-  const toggleAllowedUse = (useId: string) => {
-    if (allowedUses.includes(useId)) {
-      setAllowedUses(allowedUses.filter((u) => u !== useId));
-    } else {
-      setAllowedUses([...allowedUses, useId]);
-    }
-  };
-
-  // Daily price adjustment auto-updates suggested weekly/monthly
-  const handleDailyChange = (val: number) => {
-    setRentalDaily(val);
-    setRentalWeekly(Math.round(val * 5));
-    setRentalMonthly(Math.round(val * 15));
-  };
-
-  // Upload handler (images)
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isAvatar: boolean) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    setUploadingImage(true);
-    try {
-      const file = files[0];
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("bucket", "character-images");
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      if (isAvatar) {
-        setAvatarUrl(data.url);
-        toast.success("Main avatar uploaded!");
+      if (!characterId) {
+        // Create initial draft
+        const res = await apiFetch<{ character: Character }>(
+          "/api/characters",
+          {
+            method: "POST",
+            body: JSON.stringify(payload),
+          }
+        );
+        if (res.ok && res.data.character) {
+          setCharacterId(res.data.character.id);
+          setLastSaved(new Date());
+        }
       } else {
-        if (referenceImages.length < 8) {
-          setReferenceImages([...referenceImages, data.url]);
-          toast.success("Reference angle added!");
-        } else {
-          toast.error("Maximum 8 reference images reached.");
+        // Update existing draft
+        const res = await apiFetch<{ character: Character }>(
+          `/api/characters/${characterId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          }
+        );
+        if (res.ok) {
+          setLastSaved(new Date());
         }
       }
-    } catch (err: any) {
-      toast.error(err.message || "Failed to upload image.");
-    } finally {
+      if (showIndicator) setIsSavingDraft(false);
+    },
+    [characterId, buildPayload]
+  );
+
+  // Autosave interval every 20 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveDraft(false);
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [saveDraft]);
+
+  // File Upload Helpers
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: "portrait" | "gallery" | "audio"
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (type === "audio") {
+      setUploadingAudio(true);
+    } else {
+      setUploadingImage(true);
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("kind", type === "audio" ? "audio" : "image");
+
+    const res = await apiFetch<{ url?: string; path: string }>("/api/upload", {
+      method: "POST",
+      headers: {}, // let browser set boundary
+      body: formData,
+    });
+
+    if (type === "audio") {
+      setUploadingAudio(false);
+      if (res.ok && res.data.path) {
+        setVoiceSamplePath(res.data.path);
+      }
+    } else {
       setUploadingImage(false);
-    }
-  };
-
-  // Upload handler (voice sample)
-  const handleVoiceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0];
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Audio sample must be under 10MB.");
-      return;
-    }
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("bucket", "voice-samples");
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setVoiceSampleUrl(data.url);
-      toast.success("Voice sample uploaded. Ready for AI Analysis!");
-    } catch (err: any) {
-      toast.error(err.message || "Voice upload failed.");
-    }
-  };
-
-  // Analyze voice sample with NVIDIA NIM
-  const handleAnalyzeVoice = async () => {
-    setAnalyzingVoice(true);
-    try {
-      const res = await fetch(
-        `/api/characters/${initialCharacter?.id || "temp"}/voice-analyze`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            audioUrl: voiceSampleUrl,
-            notes: `${voiceDescription} ${speakingStyle}`,
-          }),
+      if (res.ok && (res.data.url || res.data.path)) {
+        const fileUrl = res.data.url || res.data.path;
+        if (type === "portrait") {
+          setPortraitUrl(fileUrl);
+        } else {
+          if (galleryUrls.length < 8) {
+            setGalleryUrls([...galleryUrls, fileUrl]);
+          }
         }
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setVoiceAnalyzedDescription(data.voice_analyzed_description);
-      toast.success("AI Voice Analysis generated successfully!");
-    } catch (err: any) {
-      toast.error(err.message || "Voice analysis failed.");
-    } finally {
-      setAnalyzingVoice(false);
+      }
     }
   };
 
-  // Pre-fill James or Cairo preset for testing
-  const handleFillTemplate = () => {
-    setName("Cairo");
-    setVibeSummary("Loud. Performative. Secretly terrified.");
-    setDescription(
-      "A magnetic, razor-sharp rogue who commands every room he enters. His swagger is infectious, but beneath the diamond-hard banter lies a hyper-vigilant survivor."
+  // Step 3: Check My Sheet
+  const handleCheckSheet = async () => {
+    if (sheetWordCount < 100) return;
+    setCheckingSheet(true);
+    const res = await apiFetch<{ score: number; suggestions: string[] }>(
+      "/api/characters/check-sheet",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          full_sheet: fullSheet,
+          core_trait: coreTrait,
+        }),
+      }
     );
-    setGenres(["Action", "Comedy", "Adventure", "Thriller"]);
-    setAvatarUrl(
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=800&auto=format&fit=crop&q=80"
-    );
-    setFullCharacterSheet(`Cairo is a master of situational dominance who learned very early in life that whoever controls the rhythm of a conversation controls the outcome. Raised in volatile, unstable transit hubs between industrial megastructures, Cairo discovered that appearing confident and indispensable was the only armor that truly protected him from predation.
-
-WHO THEY ARE:
-Describe your character's fundamental nature. Cairo is exceptionally skilled: he possesses instinctual tactical awareness, lightning-fast reflexes, and an innate knack for reading micro-expressions. However, he refuses to let his competence speak quietly. Instead, he relentlessly oversells everything he does, narrating his actions with witty bravado and theatrical showmanship. He dresses in sharp, tailored coats with subtle scuffs at the cuffs—clothing that looks opulent at ten paces but reveals frantic wear up close.
-
-WHAT THEY WANT:
-Cairo wants unconditional relevance and absolute security for his crew. He works obsessively toward carving out a permanent sanctuary free from jurisdictional surveillance. He thinks that reaching the apex of reputation will make him untouchable.
-
-WHAT THEY FEAR:
-Cairo is most terrified of being rendered helpless, pitiful, or exposed as ordinary. The prospect of sitting in a room where his words carry zero weight causes acute nausea. He cannot stand people witnessing his exhaustion or terror.
-
-HOW THEY RELATE TO PEOPLE:
-With strangers, Cairo is an avalanche of magnetic charm and transactional flattery. He smiles broadly, shakes hands firmly, and makes immediate, slightly scandalous jokes to disarm suspicion. With people he genuinely cares about, he becomes quietly watchful, frequently offering warm shelter or supplies under the guise of 'getting rid of extra inventory.'
-
-THEIR CONTRADICTIONS:
-Cairo appears completely selfish, vain, and self-serving on the surface, yet in actual mortal danger he will reflexively throw himself between hostile fire and a junior crew member without a second thought. He acts like he hates responsibility while carrying the weight of everyone's survival on his shoulders.
-
-THEIR HISTORY:
-Orphaned in a transit terminal collapse, Cairo grew up fast-talking station security guards and fixing faulty atmospheric seals. He knows hunger, abandonment, and betrayal intimately.
-
-THEIR SENSE OF HUMOR:
-Rapid-fire, sarcastic, and self-aggrandizing. When terrified, he tells jokes faster and louder.
-
-WHAT THEY WOULD NEVER DO:
-Cairo would never abandon an injured subordinate, accept a bribe to betray a friend, or beg for mercy in public.`);
-
-    setBehaviorDangerous(
-      "Gets louder and more theatrical when scared. The more terrified he is, the bigger his performance. His face goes completely blank for one second when something genuinely surprises him — the mask drops — then snaps back."
-    );
-    setBehaviorFunny(
-      "Laughs too loudly and too fast. Uses humor offensively to control situations. Will do something physical if the joke doesn't land."
-    );
-    setBehaviorEmotional(
-      "Deflects immediately with humor or movement. Cannot sit still in emotional conversations. The performance cracks only when someone else is in real danger."
-    );
-    setBehaviorSocial(
-      "Dominates by default. Takes up space deliberately. Always the center until something genuinely frightening happens."
-    );
-    setBehaviorConflict(
-      "Escalates first, assesses second. Goes louder before going quieter. Rarely backs down publicly."
-    );
-    setPhysicalAppearance(
-      "Lean, athletic build around 6'1\", sharp angular jawline, close-trimmed fade, penetrating hazel eyes. Tailored long coat."
-    );
-    setMovementStyle(
-      "Wide stance, chest forward, chin up. Takes up space deliberately. Slight sideways lean when walking. Always last to duck."
-    );
-    setSignatureGesture("Smoothly adjusts both coat cuffs with his thumbs.");
-    setCoreTrait(
-      "Overconfident but genuinely skilled — always oversells what he can actually deliver."
-    );
-    setHiddenQuality(
-      "When someone ELSE is in real danger he drops every performance completely. Becomes quiet, focused, and utterly competent. Unrecognizable."
-    );
-    setGreatestFear(
-      "Being seen as helpless, pitiful, or easily replaced."
-    );
-    setVoiceDescription(
-      "Medium-deep baritone, smooth delivery slightly faster than natural. Cracks under genuine stress."
-    );
-    setSpeakingStyle(
-      "Fast when performing, deliberate when serious. Commentates on own actions under pressure."
-    );
-    setVerbalHabits(
-      "Says 'Watch and learn' right before attempting risky maneuvers."
-    );
-    toast.success("Loaded Cairo character blueprint!");
-  };
-
-  const saveDraft = async (silent = false) => {
-    if (!name.trim()) {
-      if (!silent) toast.error("Please provide at least a character name.");
-      return;
-    }
-
-    setIsSavingDraft(true);
-    try {
-      const payload = {
-        name,
-        vibe_summary: vibeSummary,
-        description,
-        genres,
-        avatar_url: avatarUrl,
-        reference_images: referenceImages,
-        full_character_sheet: fullCharacterSheet,
-        behavior_dangerous: behaviorDangerous,
-        behavior_funny: behaviorFunny,
-        behavior_emotional: behaviorEmotional,
-        behavior_social: behaviorSocial,
-        behavior_conflict: behaviorConflict,
-        physical_appearance: physicalAppearance,
-        movement_style: movementStyle,
-        signature_gesture: signatureGesture,
-        core_trait: coreTrait,
-        hidden_quality: hiddenQuality,
-        greatest_fear: greatestFear,
-        voice_description: voiceDescription,
-        speaking_style: speakingStyle,
-        verbal_habits: verbalHabits,
-        voice_sample_url: voiceSampleUrl,
-        voice_analyzed_description: voiceAnalyzedDescription,
-        is_free: isFree,
-        rental_price_daily: rentalDaily,
-        rental_price_weekly: rentalWeekly,
-        rental_price_monthly: rentalMonthly,
-        purchase_price: isPurchasable ? purchasePrice : null,
-        allowed_uses: allowedUses,
-        status: "draft",
-      };
-
-      const url =
-        isEditMode && initialCharacter?.id
-          ? `/api/characters/${initialCharacter.id}`
-          : "/api/characters";
-      const method = isEditMode ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setLastSaved(new Date());
-      if (!silent) toast.success("Draft saved successfully.");
-    } catch (err: any) {
-      if (!silent) toast.error(err.message || "Failed to save draft.");
-    } finally {
-      setIsSavingDraft(false);
+    setCheckingSheet(false);
+    if (res.ok) {
+      setSheetCheckResult(res.data);
     }
   };
 
+  // Step 8: Publish
   const handlePublish = async () => {
-    if (!name.trim()) {
-      toast.error("Please enter a character name.");
-      setStep(1);
-      return;
+    if (!characterId) {
+      await saveDraft(true);
     }
-
-    if (!coreTrait.trim() || !fullCharacterSheet.trim()) {
-      toast.error("Please provide the character sheet and core trait in Step 3.");
-      setStep(3);
-      return;
-    }
-
     setIsPublishing(true);
-    try {
-      const payload = {
-        name,
-        vibe_summary: vibeSummary || "Original AI Character",
-        description: description || "Verified persona for AI video productions.",
-        genres: genres.length > 0 ? genres : ["Drama"],
-        avatar_url:
-          avatarUrl ||
-          "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=800&auto=format&fit=crop&q=80",
-        reference_images: referenceImages,
-        full_character_sheet: fullCharacterSheet,
-        behavior_dangerous: behaviorDangerous,
-        behavior_funny: behaviorFunny,
-        behavior_emotional: behaviorEmotional,
-        behavior_social: behaviorSocial,
-        behavior_conflict: behaviorConflict,
-        physical_appearance: physicalAppearance,
-        movement_style: movementStyle,
-        signature_gesture: signatureGesture,
-        core_trait: coreTrait,
-        hidden_quality: hiddenQuality,
-        greatest_fear: greatestFear,
-        voice_description: voiceDescription,
-        speaking_style: speakingStyle,
-        verbal_habits: verbalHabits,
-        voice_sample_url: voiceSampleUrl,
-        voice_analyzed_description: voiceAnalyzedDescription,
-        is_free: isFree,
-        rental_price_daily: isFree ? 0 : rentalDaily,
-        rental_price_weekly: isFree ? 0 : rentalWeekly,
-        rental_price_monthly: isFree ? 0 : rentalMonthly,
-        purchase_price: isPurchasable ? purchasePrice : null,
-        allowed_uses: allowedUses,
-        status: "active",
-      };
+    setPublishError(null);
 
-      const url =
-        isEditMode && initialCharacter?.id
-          ? `/api/characters/${initialCharacter.id}`
-          : "/api/characters";
-      const method = isEditMode ? "PUT" : "POST";
+    // Save final changes first
+    await saveDraft(false);
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    const res = await apiFetch<{
+      character: Character;
+      registration_hash: string;
+      cvr_id: string;
+    }>(`/api/characters/${characterId}/publish`, {
+      method: "POST",
+    });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      const savedChar: Character = data.character;
-      setPublishedCharacter(savedChar);
-      toast.success(`Character ${savedChar.name} is now live!`);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to publish character.");
-    } finally {
-      setIsPublishing(false);
+    setIsPublishing(false);
+    if (res.ok) {
+      setPublishSuccess(res.data.character);
+    } else {
+      setPublishError(
+        res.error.message ||
+          "Publishing failed. Check checklist requirements below."
+      );
     }
   };
 
-  // SUCCESS PUBLISHED SCREEN
-  if (publishedCharacter) {
-    const origin =
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "https://vynter-north.vercel.app";
-    const shareUrl = `${origin}/marketplace/${publishedCharacter.id}`;
+  // Navigating steps autosaves
+  const goToStep = async (nextStep: number) => {
+    await saveDraft(false);
+    setStep(nextStep);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
+  // Checklist for Step 8
+  const checklist = [
+    {
+      title: "Personality sheet depth",
+      desc: `At least 1,000 words (currently ${sheetWordCount})`,
+      pass: sheetWordCount >= MIN_SHEET_WORDS,
+    },
+    {
+      title: "Portrait image",
+      desc: "High-resolution casting headshot",
+      pass: Boolean(portraitUrl),
+    },
+    {
+      title: "Core trait & Situations",
+      desc: "Core trait plus danger, funny, and emotional behaviors written",
+      pass: Boolean(
+        coreTrait && behaviorDanger && behaviorFunny && behaviorEmotional
+      ),
+    },
+    {
+      title: "Written voice profile",
+      desc: "Baseline and verbal delivery habits defined",
+      pass: Boolean(voiceBaseline || voiceDescription),
+    },
+    {
+      title: "Pricing structure",
+      desc: isFree ? "Free character" : "Daily and monthly pricing set",
+      pass: isFree || parseFloat(priceDaily) > 0,
+    },
+  ];
+
+  const allChecksPass = checklist.every((c) => c.pass);
+
+  // Success Screen Modal/View
+  if (publishSuccess) {
     return (
-      <div className="w-full max-w-2xl mx-auto py-12 px-4 text-center space-y-8 animate-in fade-in duration-500">
-        <div className="w-20 h-20 rounded-3xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto shadow-2xl">
-          <CheckCircle2 className="w-10 h-10" />
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-[var(--glacier)]/15 border border-[var(--glacier)] flex items-center justify-center text-[var(--glacier)]">
+          <CheckCircle2 className="w-8 h-8" />
         </div>
+        <span className="text-xs font-mono text-[var(--glacier)] uppercase tracking-wider">
+          Registration Complete
+        </span>
+        <h1 className="font-serif text-4xl lg:text-5xl text-[var(--text)] mt-2">
+          {publishSuccess.name} is Live
+        </h1>
+        <p className="mt-3 text-sm text-[var(--text-dim)] max-w-lg mx-auto">
+          Your character has been cataloged in the Vynter North registry with
+          permanent registration number{" "}
+          <strong className="text-[var(--text)] font-mono">
+            {publishSuccess.id}
+          </strong>
+          .
+        </p>
 
-        <div className="space-y-2">
-          <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-elevated-app border border-app text-[#A78BFA]">
-            {publishedCharacter.id}
-          </span>
-          <h1 className="text-3xl sm:text-4xl font-black text-primary-app">
-            Your character {publishedCharacter.name} is now live!
-          </h1>
-          <p className="text-sm text-secondary-app max-w-md mx-auto">
-            Studios can now discover, test in the demo simulator, and rent{" "}
-            {publishedCharacter.name} directly into Claude and ChatGPT.
-          </p>
-        </div>
-
-        {/* Share buttons */}
-        <div className="p-6 rounded-2xl bg-card-app border border-app flex flex-col gap-4">
-          <span className="text-xs font-semibold text-secondary-app uppercase tracking-wider">
-            Share Your Character
-          </span>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              readOnly
-              value={shareUrl}
-              className="flex-1 px-3 py-2 rounded-xl bg-elevated-app border border-app text-xs font-mono text-primary-app select-all"
-            />
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(shareUrl);
-                toast.success("Profile link copied!");
-              }}
-              className="px-4 py-2 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Copy className="w-3.5 h-3.5" />
-              <span>Copy Link</span>
-            </button>
+        <div className="mt-8 p-6 bg-[var(--panel)] border border-[var(--line)] rounded-[10px] text-left space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+            <span className="text-xs text-[var(--text-dim)]">Registration ID</span>
+            <span className="text-sm font-mono text-[var(--text)] font-semibold">
+              {publishSuccess.id}
+            </span>
           </div>
-
-          <div className="flex items-center justify-center gap-3 pt-2">
-            <a
-              href={`https://twitter.com/intent/tweet?text=Meet%20${encodeURIComponent(
-                publishedCharacter.name
-              )}%20on%20Vynter%20North%20—%20AI%20character%20identity%20registry!&url=${encodeURIComponent(
-                shareUrl
-              )}`}
-              target="_blank"
-              rel="noreferrer"
-              className="px-4 py-2 rounded-xl border border-app bg-elevated-app hover:bg-[#1C1C35] text-xs font-semibold text-primary-app flex items-center gap-2 transition-colors"
-            >
-              <span>Twitter / X</span>
-            </a>
-            <a
-              href="https://tiktok.com"
-              target="_blank"
-              rel="noreferrer"
-              className="px-4 py-2 rounded-xl border border-app bg-elevated-app hover:bg-[#1C1C35] text-xs font-semibold text-primary-app flex items-center gap-2 transition-colors"
-            >
-              <span>TikTok</span>
-            </a>
+          <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+            <span className="text-xs text-[var(--text-dim)]">Certificate Hash</span>
+            <span className="text-xs font-mono text-[var(--text-dim)]">
+              {publishSuccess.registration_hash?.slice(0, 16)}…
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-[var(--text-dim)]">Intelligence Layer</span>
+            <span className="text-xs text-[var(--ok)] font-medium flex items-center gap-1">
+              <Check className="w-3.5 h-3.5" /> Ready for enrichment
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-4">
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href={`/marketplace/${publishedCharacter.id}`}
-            className="vn-button-primary px-6 py-2.5 text-sm font-bold shadow-lg"
+            href={`/certificate/${publishSuccess.id}`}
+            className="px-5 py-3 rounded-[6px] border border-[var(--line)] bg-[var(--panel-raised)] text-[var(--text)] text-sm font-medium hover:border-[var(--glacier)] flex items-center gap-2"
           >
-            View on Marketplace →
+            <ExternalLink className="w-4 h-4" />
+            View certificate
+          </Link>
+          <Link
+            href={`/characters/${publishSuccess.id}`}
+            className="px-5 py-3 rounded-[6px] bg-[var(--glacier)] text-[var(--glacier-ink)] text-sm font-medium hover:brightness-110 flex items-center gap-2"
+          >
+            <Sparkles className="w-4 h-4" />
+            Test your character
           </Link>
           <Link
             href="/dashboard/characters"
-            className="px-5 py-2.5 rounded-xl border border-app bg-card-app hover:bg-elevated-app text-sm font-semibold text-secondary-app hover:text-primary-app transition-colors"
+            className="px-4 py-3 rounded-[6px] text-sm text-[var(--text-dim)] hover:text-[var(--text)]"
           >
-            Back to Characters
+            Back to catalog
           </Link>
         </div>
       </div>
@@ -667,142 +631,124 @@ Cairo would never abandon an injured subordinate, accept a bribe to betray a fri
   }
 
   return (
-    <div className="w-full space-y-8 pb-16">
-      {/* Header & Preset button */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-app pb-6">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-[#7C3AED]">
-            {isEditMode ? "Editing Character" : "Character Creator Wizard"}
-          </span>
-          <h1 className="text-2xl sm:text-3xl font-black text-primary-app tracking-tight mt-1">
-            {isEditMode
-              ? `Edit ${initialCharacter?.name}`
-              : "Register AI Character"}
-          </h1>
-          <p className="text-xs sm:text-sm text-secondary-app mt-0.5">
-            Define personality profiles and behavioral parameters for AI video
-            tools.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleFillTemplate}
-            className="px-3 py-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-[#A78BFA] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Load complete pre-filled Cairo template"
-          >
-            <Wand2 className="w-3.5 h-3.5" />
-            <span>Load Demo Template</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => saveDraft(false)}
-            disabled={isSavingDraft}
-            className="px-3.5 py-1.5 rounded-xl border border-app bg-elevated-app hover:border-[#7C3AED] text-xs font-semibold text-secondary-app hover:text-primary-app transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {isSavingDraft ? "Saving..." : "Save Draft"}
-          </button>
-        </div>
-      </div>
-
-      {/* Progress Bar Header: Basic → Images → Personality → Voice → Pricing → Review */}
-      <div className="w-full bg-card-app border border-app rounded-2xl p-4 shadow-sm">
-        <div className="grid grid-cols-6 gap-2">
-          {STEPS.map((s) => {
-            const isCompleted = step > s.id;
-            const isCurrent = step === s.id;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setStep(s.id)}
-                className={`flex flex-col items-center gap-1 py-1.5 rounded-xl transition-all cursor-pointer ${
-                  isCurrent
-                    ? "text-[#7C3AED] font-bold"
-                    : isCompleted
-                    ? "text-emerald-400 font-semibold"
-                    : "text-muted-app font-medium"
-                }`}
-              >
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                    isCurrent
-                      ? "bg-[#7C3AED] text-white shadow-md shadow-[#7C3AED]/30"
-                      : isCompleted
-                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                      : "bg-elevated-app text-muted-app border border-app"
-                  }`}
-                >
-                  {isCompleted ? <Check className="w-3.5 h-3.5" /> : s.id}
-                </div>
-                <span className="text-[11px] truncate hidden sm:inline">
-                  {s.name}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* STEP 1 — BASIC INFO */}
-      {step === 1 && (
-        <div className="vn-card p-6 sm:p-8 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-xl font-bold text-primary-app">
-              Step 1 — Basic Information
-            </h2>
-            <p className="text-xs sm:text-sm text-secondary-app">
-              Give your character a distinct name, vibe summary, and genre classifications.
-            </p>
+    <div className="max-w-4xl mx-auto py-8 px-4">
+      {/* Header & Persistent Progress Bar */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <span className="text-xs font-mono text-[var(--glacier)] uppercase tracking-wider">
+              Creator Registry
+            </span>
+            <h1 className="font-serif text-3xl lg:text-4xl text-[var(--text)] mt-1">
+              {characterId ? `Edit ${name || "Character"}` : "Register an Original Character"}
+            </h1>
           </div>
+          <div className="text-right">
+            <div className="text-xs text-[var(--text-dim)] font-mono">
+              Step {step} of {STEPS.length}: {STEPS[step - 1].name}
+            </div>
+            <div className="text-[11px] text-[var(--text-dim)] mt-0.5">
+              {isSavingDraft ? (
+                <span className="text-[var(--glacier)] flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Saving draft…
+                </span>
+              ) : lastSaved ? (
+                <span>Saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              ) : (
+                <span>Autosaves continuously</span>
+              )}
+            </div>
+          </div>
+        </div>
 
-          <div className="space-y-4">
-            {/* Character Name with Live Uniqueness Check */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-secondary-app block">
-                Character Name *
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Cairo"
-                  className="w-full px-4 py-2.5 rounded-xl bg-secondary-app border border-app text-primary-app text-sm focus:outline-none focus:border-[#7C3AED] transition-colors"
-                />
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-xs font-semibold">
-                  {nameChecking && (
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-app" />
-                  )}
-                  {!nameChecking && nameAvailable === true && (
-                    <span className="text-emerald-400 flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5" /> Available
-                    </span>
-                  )}
-                  {!nameChecking && nameAvailable === false && (
-                    <span className="text-red-400 flex items-center gap-1">
-                      <X className="w-3.5 h-3.5" /> Already taken
-                    </span>
-                  )}
-                </div>
-              </div>
+        {/* 8-Step Navigation Tracker */}
+        <div className="grid grid-cols-8 gap-1.5 h-1.5 bg-[var(--line)] rounded-full overflow-hidden">
+          {STEPS.map((s) => (
+            <div
+              key={s.id}
+              className={`h-full transition-colors duration-300 ${
+                s.id <= step ? "bg-[var(--glacier)]" : "bg-transparent"
+              }`}
+            />
+          ))}
+        </div>
+        <div className="flex items-center justify-between mt-2 text-[11px] text-[var(--text-dim)] overflow-x-auto py-1">
+          {STEPS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => goToStep(s.id)}
+              className={`px-1.5 py-0.5 rounded transition-colors whitespace-nowrap ${
+                s.id === step
+                  ? "text-[var(--glacier)] font-semibold"
+                  : s.id < step
+                  ? "text-[var(--text)]"
+                  : "text-[var(--text-dim)] hover:text-[var(--text)]"
+              }`}
+            >
+              {s.id}. {s.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Step Container */}
+      <div className="bg-[var(--panel)] border border-[var(--line)] rounded-[10px] p-6 lg:p-8 shadow-sm">
+        {/* STEP 1: BASICS */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-serif text-2xl text-[var(--text)]">
+                Character Identity
+              </h2>
+              <p className="text-xs text-[var(--text-dim)] mt-1">
+                Establish the character's primary name and logline. The CVR registration ID ensures uniqueness on the registry.
+              </p>
             </div>
 
-            {/* Vibe Summary with Character Counter (max 100) */}
-            <div className="space-y-1.5">
+            {/* Name with live availability */}
+            <div>
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold uppercase tracking-wider text-secondary-app">
-                  Vibe Summary (max 100 chars) *
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Character Name *
                 </label>
-                <span
-                  className={`text-xs ${
-                    vibeSummary.length > 100
-                      ? "text-red-400 font-bold"
-                      : "text-muted-app"
-                  }`}
-                >
+                {nameChecking && (
+                  <span className="text-[11px] text-[var(--text-dim)] flex items-center gap-1 font-mono">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Checking catalog…
+                  </span>
+                )}
+                {!nameChecking && nameAvailable === true && (
+                  <span className="text-[11px] text-[var(--ok)] flex items-center gap-1 font-mono">
+                    <Check className="w-3 h-3" /> Name available
+                  </span>
+                )}
+                {!nameChecking && nameAvailable === false && (
+                  <span className="text-[11px] text-[var(--bad)] flex items-center gap-1 font-mono">
+                    <X className="w-3 h-3" /> Already in your catalog
+                  </span>
+                )}
+              </div>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Cairo Vane"
+                className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-[var(--text)] placeholder-[var(--text-dim)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
+              />
+              {nameNote && (
+                <p className="text-[11px] text-[var(--text-dim)] mt-1">
+                  {nameNote}
+                </p>
+              )}
+            </div>
+
+            {/* Vibe Summary */}
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Vibe Summary * (≤100 chars)
+                </label>
+                <span className="text-[11px] text-[var(--text-dim)] font-mono">
                   {vibeSummary.length}/100
                 </span>
               </div>
@@ -811,24 +757,32 @@ Cairo would never abandon an injured subordinate, accept a bribe to betray a fri
                 maxLength={100}
                 value={vibeSummary}
                 onChange={(e) => setVibeSummary(e.target.value)}
-                placeholder="4 words that capture this character, e.g. Loud. Performative. Secretly terrified."
-                className="w-full px-4 py-2.5 rounded-xl bg-secondary-app border border-app text-primary-app text-sm focus:outline-none focus:border-[#7C3AED] transition-colors italic"
+                placeholder="Four words that capture them: Quiet, lethal, dry humor."
+                className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-[var(--text)] placeholder-[var(--text-dim)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
               />
             </div>
 
-            {/* General Description (max 500 chars) */}
-            <div className="space-y-1.5">
+            {/* Tagline */}
+            <div>
+              <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                Tagline (Optional)
+              </label>
+              <input
+                type="text"
+                value={tagline}
+                onChange={(e) => setTagline(e.target.value)}
+                placeholder="e.g. The fixer who never carries a gun."
+                className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-[var(--text)] placeholder-[var(--text-dim)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
+              />
+            </div>
+
+            {/* Description */}
+            <div>
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold uppercase tracking-wider text-secondary-app">
-                  General Description (max 500 chars)
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Public Overview * (≤500 chars)
                 </label>
-                <span
-                  className={`text-xs ${
-                    description.length > 500
-                      ? "text-red-400 font-bold"
-                      : "text-muted-app"
-                  }`}
-                >
+                <span className="text-[11px] text-[var(--text-dim)] font-mono">
                   {description.length}/500
                 </span>
               </div>
@@ -837,842 +791,1054 @@ Cairo would never abandon an injured subordinate, accept a bribe to betray a fri
                 maxLength={500}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief summary of who this character is and their narrative role."
-                className="w-full px-4 py-2.5 rounded-xl bg-secondary-app border border-app text-primary-app text-sm focus:outline-none focus:border-[#7C3AED] transition-colors resize-none"
+                placeholder="High-level public description visible to studios before renting..."
+                className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-[var(--text)] placeholder-[var(--text-dim)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--glacier)] resize-none"
               />
             </div>
 
-            {/* Genre Tags (Multi-select) */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-secondary-app block">
-                Genre Specialties (Select all that apply)
+            {/* Genres */}
+            <div>
+              <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                Primary Genres *
               </label>
-              <div className="flex flex-wrap gap-2">
-                {GENRES.map((genre) => {
-                  const isSelected = genres.includes(genre);
+              <div className="flex flex-wrap gap-2 mt-2">
+                {GENRES.map((g) => {
+                  const selected = genres.includes(g);
                   return (
                     <button
-                      key={genre}
+                      key={g}
                       type="button"
-                      onClick={() => toggleGenre(genre)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                        isSelected
-                          ? "bg-[#7C3AED] text-white shadow-md shadow-[#7C3AED]/25"
-                          : "bg-elevated-app text-secondary-app hover:text-primary-app border border-app"
+                      onClick={() => {
+                        if (selected) {
+                          if (genres.length > 1) {
+                            setGenres(genres.filter((x) => x !== g));
+                          }
+                        } else {
+                          setGenres([...genres, g]);
+                        }
+                      }}
+                      className={`px-3 py-1.5 rounded-[4px] text-xs font-medium transition-colors border ${
+                        selected
+                          ? "bg-[var(--glacier)] text-[var(--glacier-ink)] border-[var(--glacier)]"
+                          : "bg-[var(--panel-raised)] text-[var(--text-dim)] border-[var(--line)] hover:text-[var(--text)]"
                       }`}
                     >
-                      {genre}
+                      {g}
                     </button>
                   );
                 })}
               </div>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* STEP 2 — VISUAL IDENTITY */}
-      {step === 2 && (
-        <div className="vn-card p-6 sm:p-8 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-xl font-bold text-primary-app">
-              Step 2 — Visual Identity & Angles
-            </h2>
-            <p className="text-xs sm:text-sm text-secondary-app">
-              Upload your character from multiple angles. These are the reference
-              images studios use when generating AI videos with your character.
-            </p>
-          </div>
-
-          {/* Main Avatar Dropzone */}
-          <div className="space-y-3">
-            <label className="text-xs font-semibold uppercase tracking-wider text-secondary-app block">
-              Main Avatar Portrait *
-            </label>
-            <div className="flex flex-col sm:flex-row items-center gap-6 p-6 rounded-2xl bg-secondary-app border border-dashed border-app">
-              {avatarUrl ? (
-                <div className="w-32 h-32 rounded-2xl overflow-hidden border-2 border-[#7C3AED] shrink-0 shadow-lg relative group">
-                  <img
-                    src={avatarUrl}
-                    alt="Main Avatar"
-                    className="w-full h-full object-cover"
+            {/* Personality Tags */}
+            <div>
+              <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                Personality Tags (Max 6)
+              </label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {personalityTags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[4px] text-xs bg-[var(--panel-raised)] text-[var(--text)] border border-[var(--line)]"
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPersonalityTags(
+                          personalityTags.filter((x) => x !== t)
+                        )
+                      }
+                      className="text-[var(--text-dim)] hover:text-[var(--bad)]"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              {personalityTags.length < 6 && (
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && tagInput.trim()) {
+                        e.preventDefault();
+                        if (!personalityTags.includes(tagInput.trim())) {
+                          setPersonalityTags([
+                            ...personalityTags,
+                            tagInput.trim(),
+                          ]);
+                          setTagInput("");
+                        }
+                      }
+                    }}
+                    placeholder="Type tag and press enter (e.g. Stoic, Sarcastic)"
+                    className="px-3 py-1.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)] focus:outline-none focus:ring-1 focus:ring-[var(--glacier)]"
                   />
                   <button
                     type="button"
-                    onClick={() => setAvatarUrl("")}
-                    className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-red-400 hover:text-red-300"
+                    onClick={() => {
+                      if (tagInput.trim() && !personalityTags.includes(tagInput.trim())) {
+                        setPersonalityTags([...personalityTags, tagInput.trim()]);
+                        setTagInput("");
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-[var(--panel-raised)] border border-[var(--line)] text-xs text-[var(--text)] rounded-[6px] hover:border-[var(--glacier)]"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    Add
                   </button>
                 </div>
-              ) : (
-                <div className="w-32 h-32 rounded-2xl bg-elevated-app border border-app flex flex-col items-center justify-center text-muted-app shrink-0">
-                  <ImageIcon className="w-8 h-8 opacity-40" />
-                  <span className="text-[11px] mt-1">No Image</span>
-                </div>
               )}
+            </div>
+          </div>
+        )}
 
-              <div className="space-y-2 flex-1 text-center sm:text-left">
-                <p className="text-sm font-semibold text-primary-app">
-                  Upload primary character headshot
-                </p>
-                <p className="text-xs text-secondary-app">
-                  PNG, JPG, or WebP. Optimal size 800x800px.
-                </p>
-                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-semibold shadow-md transition-all cursor-pointer">
-                  {uploadingImage ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="w-3.5 h-3.5" />
-                  )}
-                  <span>Choose Headshot</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleImageUpload(e, true)}
-                    className="hidden"
-                  />
+        {/* STEP 2: LOOK */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-serif text-2xl text-[var(--text)]">
+                Visual Casting Headshot
+              </h2>
+              <p className="text-xs text-[var(--text-dim)] mt-1">
+                Posters in Vynter North follow a 4:5 casting portrait format. Upload a clear, consistent reference headshot.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+              {/* Upload Controls */}
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Primary 4:5 Portrait * (≤8 MB, JPG/PNG/WebP)
+                  </label>
+                  <div className="mt-2 flex items-center gap-3">
+                    <label className="px-4 py-2.5 bg-[var(--glacier)] text-[var(--glacier-ink)] rounded-[6px] text-xs font-medium cursor-pointer hover:brightness-110 flex items-center gap-2">
+                      <Upload className="w-3.5 h-3.5" />
+                      {portraitUrl ? "Change portrait" : "Upload portrait"}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={(e) => handleFileUpload(e, "portrait")}
+                        className="hidden"
+                      />
+                    </label>
+                    {uploadingImage && (
+                      <span className="text-xs text-[var(--text-dim)] flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Uploading…
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Reference Gallery (Up to 8 angles / expressions)
+                  </label>
+                  <p className="text-[11px] text-[var(--text-dim)] mt-0.5">
+                    Studios use gallery images for side profiles, costume references, and expressive range.
+                  </p>
+                  <div className="grid grid-cols-4 gap-2 mt-3">
+                    {galleryUrls.map((url, idx) => (
+                      <div
+                        key={idx}
+                        className="relative aspect-square rounded-[4px] overflow-hidden border border-[var(--line)] group"
+                      >
+                        <img
+                          src={url}
+                          alt={`Reference ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setGalleryUrls(
+                              galleryUrls.filter((_, i) => i !== idx)
+                            )
+                          }
+                          className="absolute top-1 right-1 p-1 bg-black/70 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {galleryUrls.length < 8 && (
+                      <label className="aspect-square rounded-[4px] border border-dashed border-[var(--line)] hover:border-[var(--glacier)] flex flex-col items-center justify-center cursor-pointer text-[var(--text-dim)] hover:text-[var(--text)] transition-colors">
+                        <Plus className="w-4 h-4 mb-1" />
+                        <span className="text-[10px]">Add</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={(e) => handleFileUpload(e, "gallery")}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Poster Card Live Preview */}
+              <div>
+                <label className="text-xs font-semibold text-[var(--text-dim)] uppercase tracking-wider block mb-2">
+                  Marketplace Poster Preview (2px corners)
                 </label>
+                <div className="max-w-[240px] mx-auto">
+                  <CharacterPosterCard
+                    character={{
+                      id: characterId || "CVR-2026-00000",
+                      owner_id: user?.id || "",
+                      name: name || "Character Name",
+                      status: "draft",
+                      vibe_summary:
+                        vibeSummary || "Quiet, lethal, dry humor.",
+                      description: description || "Character description.",
+                      portrait_url: portraitUrl || null,
+                      genres: genres,
+                      personality_tags: personalityTags,
+                      allowed_uses: allowedUses,
+                      is_free: isFree,
+                      trial_enabled: trialEnabled,
+                      price_daily_cents: isFree
+                        ? 0
+                        : Math.round((parseFloat(priceDaily) || 5) * 100),
+                      price_weekly_cents: 2500,
+                      price_monthly_cents: 7500,
+                      sale_enabled: saleEnabled,
+                      sale_price_cents: 75000,
+                      fame_score: 45,
+                      fame_tier: "newcomer",
+                      rating_avg: 5.0,
+                      review_count: 0,
+                      rental_count: 0,
+                      unique_studios: 0,
+                      gallery_urls: galleryUrls,
+                      sheet_word_count: sheetWordCount,
+                      accept_offers: acceptOffers,
+                      is_featured: false,
+                      is_demo: false,
+                      is_legend: false,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    } as unknown as Character}
+                  />
+                </div>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Reference Images (Up to 8) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wider text-secondary-app">
-                Reference Angles & Expressions (up to 8)
-              </label>
-              <span className="text-xs text-muted-app">
-                {referenceImages.length}/8
-              </span>
-            </div>
+        {/* STEP 3: PERSONALITY SHEET */}
+        {step === 3 && (
+          <div className="space-y-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="font-serif text-2xl text-[var(--text)]">
+                  The Master Personality Sheet
+                </h2>
+                <p className="text-xs text-[var(--text-dim)] mt-1">
+                  This private document forms the brain of the character. Minimum{" "}
+                  <strong>{MIN_SHEET_WORDS.toLocaleString()} words</strong>. The AI server selects relevant paragraphs per scene; the full sheet never leaves our server.
+                </p>
+              </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              {referenceImages.map((img, idx) => (
-                <div
-                  key={idx}
-                  className="h-28 rounded-xl overflow-hidden border border-app bg-secondary-app relative group"
+              {/* Live Word Count Indicator */}
+              <div className="text-right">
+                <span
+                  className={`text-sm font-mono font-bold ${
+                    sheetWordCount >= MIN_SHEET_WORDS
+                      ? "text-[var(--ok)]"
+                      : "text-[var(--marquee)]"
+                  }`}
                 >
-                  <img
-                    src={img}
-                    alt={`Reference ${idx + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReferenceImages(
-                        referenceImages.filter((_, i) => i !== idx)
-                      )
-                    }
-                    className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-
-              {referenceImages.length < 8 && (
-                <label className="h-28 rounded-xl border border-dashed border-app bg-secondary-app hover:border-[#7C3AED] flex flex-col items-center justify-center gap-1.5 text-muted-app hover:text-primary-app transition-colors cursor-pointer">
-                  <Upload className="w-5 h-5 text-[#A78BFA]" />
-                  <span className="text-[11px] font-semibold">Add Angle</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => handleImageUpload(e, false)}
-                    className="hidden"
-                  />
-                </label>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 3 — PERSONALITY PROFILE */}
-      {step === 3 && (
-        <div className="vn-card p-6 sm:p-8 space-y-8">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-xs font-bold text-[#A78BFA]">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>The Personality Profile</span>
-            </div>
-            <h2 className="text-xl sm:text-2xl font-black text-primary-app">
-              The Heart of Your Character
-            </h2>
-            <div className="p-4 rounded-xl bg-elevated-app border border-app text-xs sm:text-sm text-secondary-app leading-relaxed">
-              When a studio types a scene, our AI reads this and writes exactly
-              how YOUR character would behave. The more you write, the better and
-              more consistent your character performs.
-            </div>
-          </div>
-
-          {/* SECTION A — FULL CHARACTER SHEET (MIN 1000 WORDS) */}
-          <div className="space-y-3 pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-primary-app">
-                Section A — Complete Character Document (Min 1,000 Words)
-              </label>
-              <div
-                className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 ${
-                  sheetWordCount >= 1000
-                    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                    : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                }`}
-              >
-                {sheetWordCount >= 1000 ? (
-                  <Check className="w-3.5 h-3.5" />
-                ) : (
-                  <AlertCircle className="w-3.5 h-3.5" />
-                )}
-                <span>
-                  {sheetWordCount} words —{" "}
-                  {sheetWordCount >= 1000
-                    ? "Minimum reached ✓"
-                    : `${1000 - sheetWordCount} more words required`}
+                  {sheetWordCount.toLocaleString()} words
+                </span>
+                <span className="block text-[11px] text-[var(--text-dim)]">
+                  {sheetWordCount >= MIN_SHEET_WORDS
+                    ? "✓ Meets minimum"
+                    : `${MIN_SHEET_WORDS - sheetWordCount} words to go`}
                 </span>
               </div>
             </div>
 
-            <p className="text-xs text-muted-app">
-              Write everything about your character: Background, personality,
-              motivations, quirks, contradictions, how they think, what they
-              want, what they fear, how they treat people, their history. Minimum
-              1,000 words. No maximum.
-            </p>
-
-            <textarea
-              rows={24}
-              value={fullCharacterSheet}
-              onChange={(e) => setFullCharacterSheet(e.target.value)}
-              placeholder={`Write your character's complete personality here.
-
-WHO THEY ARE:
-Describe your character's fundamental nature. What is their core personality? How do others perceive them versus how they see themselves?
-
-WHAT THEY WANT:
-What does this character want more than anything? What are they working toward? What do they think will make them happy?
-
-WHAT THEY FEAR:
-What are they most afraid of? What would break them? What do they most not want to be seen as?
-
-HOW THEY RELATE TO PEOPLE:
-Are they warm or cold? Do they trust easily or not at all? How do they treat strangers vs people they care about?
-
-THEIR CONTRADICTIONS:
-Every interesting character has contradictions. What are the tensions within this character?
-
-THEIR HISTORY:
-What shaped them? What happened to them that made them who they are?
-
-THEIR SENSE OF HUMOR:
-Do they have one? What do they find funny? How do they express it?
-
-WHAT THEY WOULD NEVER DO:
-What lines would they never cross? What would cause them to walk away from anything?
-
-The more specific you are, the more consistently and precisely your character will perform in every scene.`}
-              className="w-full p-4 rounded-xl bg-secondary-app border border-app text-primary-app text-sm leading-relaxed font-mono focus:outline-none focus:border-[#7C3AED] transition-colors"
-            />
-          </div>
-
-          {/* SECTION B — SPECIFIC SITUATIONS (5 TEXTAREAS) */}
-          <div className="space-y-5 pt-6 border-t border-app">
-            <div className="space-y-1">
-              <h3 className="text-base font-bold text-primary-app">
-                Section B — Behavioral Specifics
-              </h3>
-              <p className="text-xs text-secondary-app">
-                Answer each question precisely. These are used when scenes match
-                specific emotional categories.
+            {/* Guided Prompt Topics */}
+            <div className="p-4 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px] text-xs text-[var(--text-dim)] space-y-1.5">
+              <span className="text-[var(--text)] font-semibold uppercase tracking-wider text-[11px] block">
+                What to cover in this sheet:
+              </span>
+              <p>
+                1. <strong>Identity & History:</strong> Core motivations, childhood, formative trauma, debts, and current occupation.
+              </p>
+              <p>
+                2. <strong>Social & Interpersonal:</strong> How they treat allies, strangers, superiors, and subordinates.
+              </p>
+              <p>
+                3. <strong>Contradictions & Moral Boundaries:</strong> Lines they will never cross, secrets they guard, hypocrisies.
+              </p>
+              <p>
+                4. <strong>Micro-behaviors:</strong> Speech pauses, physical tells under pressure, relationship with violence and humor.
               </p>
             </div>
 
-            {/* 1. Dangerous */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-primary-app block">
-                1. In dangerous situations (chases, fights, life threats):
-              </label>
+            {/* Sheet Textarea */}
+            <div>
               <textarea
-                rows={6}
-                value={behaviorDangerous}
-                onChange={(e) => setBehaviorDangerous(e.target.value)}
-                placeholder="Describe their exact physical and emotional response when in danger. Do they freeze? Fight? Run? How does their body move? What happens to their voice? What do they say or not say?"
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm focus:outline-none focus:border-[#7C3AED]"
+                rows={16}
+                value={fullSheet}
+                onChange={(e) => setFullSheet(e.target.value)}
+                placeholder="Write the deep character sheet here in your own words. Originality and specific details yield the best video direction results..."
+                className="w-full px-4 py-3 bg-[var(--night)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)] font-mono leading-relaxed placeholder-[var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)] resize-y"
               />
             </div>
 
-            {/* 2. Comedic/Funny */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-primary-app block">
-                2. In funny or awkward situations:
-              </label>
-              <textarea
-                rows={6}
-                value={behaviorFunny}
-                onChange={(e) => setBehaviorFunny(e.target.value)}
-                placeholder="Do they laugh easily or suppress it? Do they make jokes or stay serious? What does their face do when something absurd happens? Do they play along or refuse to engage?"
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm focus:outline-none focus:border-[#7C3AED]"
-              />
+            {/* Check Sheet Button & Results */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleCheckSheet}
+                  disabled={checkingSheet || sheetWordCount < 100}
+                  className="px-4 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] text-[var(--text)] text-xs font-medium rounded-[6px] hover:border-[var(--glacier)] disabled:opacity-50 flex items-center gap-2"
+                >
+                  {checkingSheet ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--marquee)]" />
+                  )}
+                  Check my sheet
+                </button>
+                <span className="text-[11px] text-[var(--text-dim)]">
+                  Evaluates originality and specificity (calls NVIDIA NIM)
+                </span>
+              </div>
+
+              {sheetCheckResult && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px]">
+                  <span className="text-xs text-[var(--text-dim)]">Specificity:</span>
+                  <span className="text-sm font-mono font-bold text-[var(--marquee)]">
+                    {sheetCheckResult.score}/100
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* 3. Emotional moments */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-primary-app block">
-                3. In moments of grief, loss, or deep emotion:
-              </label>
-              <textarea
-                rows={6}
-                value={behaviorEmotional}
-                onChange={(e) => setBehaviorEmotional(e.target.value)}
-                placeholder="Do they show emotion openly or close down? How do they handle their own pain? How do they respond when others are hurting? What breaks through their guard?"
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm focus:outline-none focus:border-[#7C3AED]"
-              />
-            </div>
-
-            {/* 4. Social situations */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-primary-app block">
-                4. In social situations (parties, crowds, meetings):
-              </label>
-              <textarea
-                rows={6}
-                value={behaviorSocial}
-                onChange={(e) => setBehaviorSocial(e.target.value)}
-                placeholder="Do they dominate a room or disappear to the edges? Are they energized by people or drained? How do they behave in groups vs one-on-one?"
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm focus:outline-none focus:border-[#7C3AED]"
-              />
-            </div>
-
-            {/* 5. Conflict */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-primary-app block">
-                5. In arguments or when directly challenged:
-              </label>
-              <textarea
-                rows={6}
-                value={behaviorConflict}
-                onChange={(e) => setBehaviorConflict(e.target.value)}
-                placeholder="Do they escalate or de-escalate? Get louder or quieter? Go cold or explode? Do they fight back immediately or calculate first? What does their face do when someone challenges them?"
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm focus:outline-none focus:border-[#7C3AED]"
-              />
-            </div>
+            {sheetCheckResult && sheetCheckResult.suggestions?.length > 0 && (
+              <div className="p-4 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px] space-y-2">
+                <span className="text-xs font-semibold text-[var(--marquee)]">
+                  Improvement suggestions from evaluation:
+                </span>
+                <ul className="text-xs text-[var(--text-dim)] space-y-1 list-disc list-inside">
+                  {sheetCheckResult.suggestions.map((sug, i) => (
+                    <li key={i}>{sug}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
+        )}
 
-          {/* SECTION C — PHYSICAL PRESENCE */}
-          <div className="space-y-4 pt-6 border-t border-app">
-            <h3 className="text-base font-bold text-primary-app">
-              Section C — Physical Presence
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-secondary-app block">
-                  Physical Appearance (4 rows)
-                </label>
-                <textarea
-                  rows={4}
-                  value={physicalAppearance}
-                  onChange={(e) => setPhysicalAppearance(e.target.value)}
-                  placeholder="Describe their look — build, height impression, face structure, hair, skin, how they dress, what someone notices first about them."
-                  className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-secondary-app block">
-                  How They Move (4 rows)
-                </label>
-                <textarea
-                  rows={4}
-                  value={movementStyle}
-                  onChange={(e) => setMovementStyle(e.target.value)}
-                  placeholder="How do they walk, stand, sit? Do they take up space or make themselves small? Fast or slow? Deliberate or impulsive? What does their body do when they're thinking?"
-                  className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-                />
-              </div>
+        {/* STEP 4: SITUATIONS & PRESENCE */}
+        {step === 4 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-serif text-2xl text-[var(--text)]">
+                Situational Reactions & Physical Tells
+              </h2>
+              <p className="text-xs text-[var(--text-dim)] mt-1">
+                These five scenario profiles allow the intelligence engine to inject distinctive reactions into high-intensity scenes.
+              </p>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-secondary-app block">
-                Signature Physical Habit (optional)
-              </label>
-              <input
-                type="text"
-                value={signatureGesture}
-                onChange={(e) => setSignatureGesture(e.target.value)}
-                placeholder="One thing they always do — a gesture, posture, or movement that belongs only to them."
-                className="w-full px-4 py-2.5 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-secondary-app block">
-                Core Trait in one sentence *
+            {/* Core Trait (One sentence) */}
+            <div>
+              <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                Core Trait * (One sentence summary)
               </label>
               <input
                 type="text"
                 value={coreTrait}
                 onChange={(e) => setCoreTrait(e.target.value)}
-                placeholder="Overconfident but genuinely skilled — always oversells what he can actually deliver."
-                className="w-full px-4 py-2.5 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
+                placeholder="e.g. Unflinching stillness under sudden threat."
+                className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-secondary-app block">
-                What They Hide (3 rows)
-              </label>
-              <textarea
-                rows={3}
-                value={hiddenQuality}
-                onChange={(e) => setHiddenQuality(e.target.value)}
-                placeholder="Something about this character that only appears in rare, unguarded moments. The thing that surprises people about them."
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-secondary-app block">
-                Greatest Fear
-              </label>
-              <input
-                type="text"
-                value={greatestFear}
-                onChange={(e) => setGreatestFear(e.target.value)}
-                placeholder="Not necessarily physical — what does this character most not want to happen or be seen as?"
-                className="w-full px-4 py-2.5 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 4 — VOICE & SPEECH */}
-      {step === 4 && (
-        <div className="vn-card p-6 sm:p-8 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-xl font-bold text-primary-app">
-              Step 4 — Voice & Speech Profile
-            </h2>
-            <p className="text-xs sm:text-sm text-secondary-app">
-              Studios need to understand how your character sounds so their AI
-              video tool can match the voice style.
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-secondary-app block">
-                Voice Quality (4 rows)
-              </label>
-              <textarea
-                rows={4}
-                value={voiceDescription}
-                onChange={(e) => setVoiceDescription(e.target.value)}
-                placeholder="Describe how they sound. Pitch (high/medium/low), tone (warm/cold/gravelly/smooth/husky/sharp), distinctive qualities. What would you notice about this voice in a dark room?"
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-secondary-app block">
-                How They Speak (3 rows)
-              </label>
-              <textarea
-                rows={3}
-                value={speakingStyle}
-                onChange={(e) => setSpeakingStyle(e.target.value)}
-                placeholder="Fast or slow? Formal or casual? Long sentences or short bursts? Loud or quiet? Direct or circles around things? How does their speaking style change with emotion?"
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-secondary-app block">
-                Verbal Habits (optional, 3 rows)
-              </label>
-              <textarea
-                rows={3}
-                value={verbalHabits}
-                onChange={(e) => setVerbalHabits(e.target.value)}
-                placeholder="Catchphrases, repeated words or phrases, things they always say in specific situations, language patterns, accent details, anything that makes their speech recognizable."
-                className="w-full p-3 rounded-xl bg-secondary-app border border-app text-primary-app text-xs sm:text-sm"
-              />
-            </div>
-
-            {/* Optional Voice Sample Upload */}
-            <div className="p-6 rounded-2xl bg-secondary-app border border-dashed border-app space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-[#A78BFA] flex items-center justify-center">
-                  <Mic className="w-5 h-5" />
+            {/* Situation Boxes */}
+            <div className="space-y-4 pt-2">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Danger & High Stakes Reaction * (80–600 words)
+                  </label>
+                  <span className="text-[11px] font-mono text-[var(--text-dim)]">
+                    {countWords(behaviorDanger)} words
+                  </span>
                 </div>
+                <p className="text-[11px] text-[var(--text-dim)] mt-0.5">
+                  Example: <em>Does not raise his voice; lowers his center of gravity and stops blinking.</em>
+                </p>
+                <textarea
+                  rows={4}
+                  value={behaviorDanger}
+                  onChange={(e) => setBehaviorDanger(e.target.value)}
+                  placeholder="Describe exact physical posture, breathing, and instinct when facing armed threat or mortal danger..."
+                  className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Awkward & Comedic Reaction * (80–600 words)
+                  </label>
+                  <span className="text-[11px] font-mono text-[var(--text-dim)]">
+                    {countWords(behaviorFunny)} words
+                  </span>
+                </div>
+                <p className="text-[11px] text-[var(--text-dim)] mt-0.5">
+                  Example: <em>Over-corrects with formal politeness; fixes cuff links to avoid eye contact.</em>
+                </p>
+                <textarea
+                  rows={4}
+                  value={behaviorFunny}
+                  onChange={(e) => setBehaviorFunny(e.target.value)}
+                  placeholder="How they react to ridiculous circumstances, social slip-ups, or uninvited banter..."
+                  className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Grief & Emotional Vulnerability * (80–600 words)
+                  </label>
+                  <span className="text-[11px] font-mono text-[var(--text-dim)]">
+                    {countWords(behaviorEmotional)} words
+                  </span>
+                </div>
+                <p className="text-[11px] text-[var(--text-dim)] mt-0.5">
+                  Example: <em>Turns sideways to the speaker; jaw clenches once before speaking in a lower register.</em>
+                </p>
+                <textarea
+                  rows={4}
+                  value={behaviorEmotional}
+                  onChange={(e) => setBehaviorEmotional(e.target.value)}
+                  placeholder="How they carry real loss, betrayals, and quiet intimacy..."
+                  className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <h4 className="text-sm font-bold text-primary-app">
-                    Upload a voice recording (optional)
-                  </h4>
-                  <p className="text-xs text-secondary-app">
-                    Record yourself speaking as this character, or find a reference clip. Our AI analyzes it and generates a detailed voice description. Accepts .mp3, .wav, .m4a (max 10MB).
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="px-4 py-2 rounded-xl bg-elevated-app border border-app hover:border-[#7C3AED] text-xs font-semibold text-primary-app flex items-center gap-2 cursor-pointer transition-colors">
-                  <Upload className="w-3.5 h-3.5 text-[#7C3AED]" />
-                  <span>Select Audio File</span>
-                  <input
-                    type="file"
-                    accept=".mp3,.wav,.m4a,audio/*"
-                    onChange={handleVoiceUpload}
-                    className="hidden"
-                  />
-                </label>
-
-                {voiceSampleUrl && (
-                  <button
-                    type="button"
-                    onClick={handleAnalyzeVoice}
-                    disabled={analyzingVoice}
-                    className="px-4 py-2 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {analyzingVoice ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-3.5 h-3.5" />
-                    )}
-                    <span>Analyze Voice Sample with AI</span>
-                  </button>
-                )}
-              </div>
-
-              {voiceAnalyzedDescription && (
-                <div className="space-y-1.5 pt-2">
-                  <label className="text-xs font-bold text-[#A78BFA] block">
-                    AI Voice Analysis — Review and edit this:
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Crowds & Social Situations
                   </label>
                   <textarea
-                    rows={4}
-                    value={voiceAnalyzedDescription}
-                    onChange={(e) => setVoiceAnalyzedDescription(e.target.value)}
-                    className="w-full p-3 rounded-xl bg-card-app border border-app text-primary-app text-xs leading-relaxed"
+                    rows={3}
+                    value={behaviorSocial}
+                    onChange={(e) => setBehaviorSocial(e.target.value)}
+                    placeholder="Wallflower, room-controller, or calculating observer..."
+                    className="mt-1.5 w-full px-3.5 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
                   />
-                  <p className="text-[11px] text-amber-400">
-                    Review carefully. Edit to match what you actually hear in your recording.
-                  </p>
                 </div>
-              )}
-            </div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Interpersonal Conflict
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={behaviorConflict}
+                    onChange={(e) => setBehaviorConflict(e.target.value)}
+                    placeholder="Verbal cutting, passive-aggressive silence, or immediate escalation..."
+                    className="mt-1.5 w-full px-3.5 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
+                  />
+                </div>
+              </div>
 
-            {/* Voice Consistency Info Banner */}
-            <div className="p-4 rounded-xl bg-elevated-app border border-app text-xs text-secondary-app leading-relaxed">
-              <span className="font-bold text-primary-app">
-                Voice in video generation:
-              </span>{" "}
-              The voice profile is included in your character's intelligence
-              layer, giving video tools detailed instructions about your
-              character's voice. For exact voice replication in AI video (lip
-              sync + matching voice), this requires direct platform integration
-              like HigsField — coming soon.
+              {/* Physical presence fields */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Movement Style
+                  </label>
+                  <input
+                    type="text"
+                    value={movementStyle}
+                    onChange={(e) => setMovementStyle(e.target.value)}
+                    placeholder="e.g. Economical, feline, slow stride"
+                    className="mt-1 w-full px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Signature Gesture
+                  </label>
+                  <input
+                    type="text"
+                    value={signatureGesture}
+                    onChange={(e) => setSignatureGesture(e.target.value)}
+                    placeholder="e.g. Taps thumb against pinky knuckle"
+                    className="mt-1 w-full px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Greatest Fear
+                  </label>
+                  <input
+                    type="text"
+                    value={greatestFear}
+                    onChange={(e) => setGreatestFear(e.target.value)}
+                    placeholder="e.g. Dying in an enclosed room"
+                    className="mt-1 w-full px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* STEP 5 — PRICING & AVAILABILITY */}
-      {step === 5 && (
-        <div className="vn-card p-6 sm:p-8 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-xl font-bold text-primary-app">
-              Step 5 — Pricing & Availability
-            </h2>
-            <p className="text-xs sm:text-sm text-secondary-app">
-              Choose how studios can rent or buy your character persona.
-            </p>
-          </div>
-
+        {/* STEP 5: VOICE PROFILE */}
+        {step === 5 && (
           <div className="space-y-6">
-            {/* Free Character Toggle */}
-            <div className="flex items-center justify-between p-4 rounded-xl bg-secondary-app border border-app">
+            <div>
+              <h2 className="font-serif text-2xl text-[var(--text)]">
+                Written Voice Profile
+              </h2>
+              <p className="text-xs text-[var(--text-dim)] mt-1">
+                Vynter North provides video tools with exact delivery direction (inflection, cadence, pauses) rather than spoken audio.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <p className="text-sm font-bold text-primary-app">
-                  Free Community Character
-                </p>
-                <p className="text-xs text-secondary-app">
-                  Make this character freely available to all studios. Good for building Fame Score and getting your first reviews.
-                </p>
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Pitch
+                </label>
+                <select
+                  value={voicePitch}
+                  onChange={(e) => setVoicePitch(e.target.value)}
+                  className="mt-1.5 w-full px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                >
+                  <option>Low / Baritone</option>
+                  <option>Medium</option>
+                  <option>High / Tenor</option>
+                  <option>Husky</option>
+                  <option>Gravelly</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Tone
+                </label>
+                <select
+                  value={voiceTone}
+                  onChange={(e) => setVoiceTone(e.target.value)}
+                  className="mt-1.5 w-full px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                >
+                  <option>Grounded</option>
+                  <option>Sharp / Snappy</option>
+                  <option>Melodic</option>
+                  <option>Monotone / Deadpan</option>
+                  <option>Warm</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Pace
+                </label>
+                <select
+                  value={voicePace}
+                  onChange={(e) => setVoicePace(e.target.value)}
+                  className="mt-1.5 w-full px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                >
+                  <option>Deliberate / Slow</option>
+                  <option>Measured / Moderate</option>
+                  <option>Rapid / Staccato</option>
+                  <option>Hesitant</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Accent
+                </label>
+                <input
+                  type="text"
+                  value={voiceAccent}
+                  onChange={(e) => setVoiceAccent(e.target.value)}
+                  placeholder="e.g. London Estuary"
+                  className="mt-1.5 w-full px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <div>
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Emotional Baseline
+                </label>
+                <input
+                  type="text"
+                  value={voiceBaseline}
+                  onChange={(e) => setVoiceBaseline(e.target.value)}
+                  placeholder="e.g. Quiet certainty, never shouts, speaks slightly after others stop talking."
+                  className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)]"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                  Verbal Habits & Speech Rhythm
+                </label>
+                <textarea
+                  rows={3}
+                  value={verbalHabits}
+                  onChange={(e) => setVerbalHabits(e.target.value)}
+                  placeholder="Does not use filler words; trails off mid-sentence when distracted; speaks in fragments..."
+                  className="mt-1.5 w-full px-3.5 py-2.5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)]"
+                />
+              </div>
+
+              {/* Honest Voice Sample Upload */}
+              <div className="p-4 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider block">
+                      Optional Voice Sample (≤15 MB MP3/WAV/M4A)
+                    </span>
+                    <p className="text-[11px] text-[var(--text-dim)] mt-0.5">
+                      Audio analysis and voice cloning are not live yet. Your written voice profile is what studios' tools receive today.
+                    </p>
+                  </div>
+                  <label className="px-3.5 py-2 bg-[var(--panel)] border border-[var(--line)] text-[var(--text)] rounded-[6px] text-xs font-medium cursor-pointer hover:border-[var(--glacier)] flex items-center gap-1.5">
+                    <Mic className="w-3.5 h-3.5 text-[var(--glacier)]" />
+                    {voiceSamplePath ? "Sample saved" : "Upload sample"}
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={(e) => handleFileUpload(e, "audio")}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                {uploadingAudio && (
+                  <span className="text-xs text-[var(--text-dim)] flex items-center gap-1 mt-2">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Uploading audio…
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 6: PRICING & AVAILABILITY */}
+        {step === 6 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-serif text-2xl text-[var(--text)]">
+                Pricing & Licensing
+              </h2>
+              <p className="text-xs text-[var(--text-dim)] mt-1">
+                Renting can be used by many studios at once; buying is exclusive and permanently removes the character from the market.
+              </p>
+            </div>
+
+            {/* Free vs Paid Toggle */}
+            <div className="flex items-center justify-between p-4 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px]">
+              <div>
+                <span className="text-sm font-medium text-[var(--text)] block">
+                  Free Character
+                </span>
+                <span className="text-xs text-[var(--text-dim)]">
+                  Allow any studio to add this character to their library with 100 free credits.
+                </span>
               </div>
               <input
                 type="checkbox"
                 checked={isFree}
                 onChange={(e) => setIsFree(e.target.checked)}
-                className="w-5 h-5 rounded border-app bg-card-app text-[#7C3AED] focus:ring-[#7C3AED] cursor-pointer"
+                className="w-4 h-4 accent-[var(--glacier)] cursor-pointer"
               />
             </div>
 
             {!isFree && (
-              <div className="space-y-4 p-5 rounded-2xl bg-secondary-app border border-app">
-                <span className="text-xs font-bold uppercase tracking-wider text-primary-app block">
-                  Rental Pricing
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-secondary-app">
-                      Daily Rate ($/day)
-                    </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Daily Rental ($)
+                  </label>
+                  <div className="relative mt-1.5">
+                    <DollarSign className="w-4 h-4 absolute left-3 top-3 text-[var(--text-dim)]" />
                     <input
                       type="number"
                       min={1}
-                      value={rentalDaily}
-                      onChange={(e) => handleDailyChange(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl bg-card-app border border-app text-primary-app text-sm"
+                      value={priceDaily}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPriceDaily(val);
+                        // Auto-suggest weekly ~5x and monthly ~15x
+                        const d = parseFloat(val) || 0;
+                        setPriceWeekly(Math.round(d * 5).toString());
+                        setPriceMonthly(Math.round(d * 15).toString());
+                      }}
+                      className="w-full pl-8 pr-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)]"
                     />
                   </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-secondary-app">
-                      Weekly Rate ($/week)
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={rentalWeekly}
-                      onChange={(e) => setRentalWeekly(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl bg-card-app border border-app text-primary-app text-sm"
-                    />
-                    <span className="text-[10px] text-muted-app">
-                      Suggested: ${rentalDaily * 5} (5x daily)
-                    </span>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-secondary-app">
-                      Monthly Rate ($/month)
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={rentalMonthly}
-                      onChange={(e) => setRentalMonthly(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl bg-card-app border border-app text-primary-app text-sm"
-                    />
-                    <span className="text-[10px] text-muted-app">
-                      Suggested: ${rentalDaily * 15} (15x daily)
-                    </span>
-                  </div>
+                  <span className="text-[10px] text-[var(--text-dim)] mt-1 block">
+                    Includes 50 credits
+                  </span>
                 </div>
 
-                {/* Permanent Purchase Toggle */}
-                <div className="pt-4 border-t border-app space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold text-primary-app">
-                        Available for Permanent Purchase
-                      </p>
-                      <p className="text-xs text-secondary-app">
-                        Once purchased by a studio, this character is removed from the marketplace permanently. Only one studio can ever buy a character.
-                      </p>
-                    </div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Weekly Rental ($)
+                  </label>
+                  <div className="relative mt-1.5">
+                    <DollarSign className="w-4 h-4 absolute left-3 top-3 text-[var(--text-dim)]" />
                     <input
-                      type="checkbox"
-                      checked={isPurchasable}
-                      onChange={(e) => setIsPurchasable(e.target.checked)}
-                      className="w-5 h-5 rounded border-app bg-card-app text-[#7C3AED] focus:ring-[#7C3AED] cursor-pointer"
+                      type="number"
+                      min={1}
+                      value={priceWeekly}
+                      onChange={(e) => setPriceWeekly(e.target.value)}
+                      className="w-full pl-8 pr-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)]"
                     />
                   </div>
+                  <span className="text-[10px] text-[var(--text-dim)] mt-1 block">
+                    Includes 200 credits
+                  </span>
+                </div>
 
-                  {isPurchasable && (
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-secondary-app">
-                        Purchase Price ($)
-                      </label>
-                      <input
-                        type="number"
-                        min={rentalMonthly * 10}
-                        value={purchasePrice}
-                        onChange={(e) => setPurchasePrice(Number(e.target.value))}
-                        className="w-full sm:w-64 px-3 py-2 rounded-xl bg-card-app border border-app text-primary-app text-sm"
-                      />
-                      <span className="text-[10px] text-muted-app block">
-                        Minimum: ${rentalMonthly * 10} (10x monthly rate)
-                      </span>
-                    </div>
-                  )}
+                <div>
+                  <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    Monthly Rental ($)
+                  </label>
+                  <div className="relative mt-1.5">
+                    <DollarSign className="w-4 h-4 absolute left-3 top-3 text-[var(--text-dim)]" />
+                    <input
+                      type="number"
+                      min={1}
+                      value={priceMonthly}
+                      onChange={(e) => setPriceMonthly(e.target.value)}
+                      className="w-full pl-8 pr-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)]"
+                    />
+                  </div>
+                  <span className="text-[10px] text-[var(--text-dim)] mt-1 block">
+                    Includes 500 credits
+                  </span>
                 </div>
               </div>
             )}
 
-            {/* Allowed Uses Checkboxes */}
-            <div className="space-y-3">
-              <label className="text-xs font-bold uppercase tracking-wider text-secondary-app block">
-                Allowed Commercial & Production Uses
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {ALLOWED_USES_OPTIONS.map((opt) => {
-                  const isChecked = allowedUses.includes(opt.id);
-                  return (
-                    <label
-                      key={opt.id}
-                      className="flex items-center gap-2.5 p-3 rounded-xl bg-secondary-app border border-app hover:border-[#7C3AED] transition-colors cursor-pointer"
-                    >
+            {/* Trial Toggle */}
+            <div className="flex items-center justify-between p-4 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px]">
+              <div>
+                <span className="text-sm font-medium text-[var(--text)] block">
+                  Enable 3-Day Free Trial
+                </span>
+                <span className="text-xs text-[var(--text-dim)]">
+                  Gives studios 15 preview credits to test the character in Claude or workspace.
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={trialEnabled}
+                onChange={(e) => setTrialEnabled(e.target.checked)}
+                className="w-4 h-4 accent-[var(--glacier)] cursor-pointer"
+              />
+            </div>
+
+            {/* Sale / Buyout Toggle */}
+            <div className="p-4 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px] space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-[var(--text)] block">
+                    Permanent Buyout (Exclusive Sale)
+                  </span>
+                  <span className="text-xs text-[var(--text-dim)]">
+                    Single studio acquires full ownership. Minimum is 10× monthly price (${((parseFloat(priceMonthly) || 50) * 10).toFixed(0)}).
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={saleEnabled}
+                  onChange={(e) => setSaleEnabled(e.target.checked)}
+                  className="w-4 h-4 accent-[var(--glacier)] cursor-pointer"
+                />
+              </div>
+
+              {saleEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-[var(--line)]">
+                  <div>
+                    <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                      Buyout Price ($)
+                    </label>
+                    <div className="relative mt-1">
+                      <DollarSign className="w-4 h-4 absolute left-3 top-3 text-[var(--text-dim)]" />
+                      <input
+                        type="number"
+                        min={(parseFloat(priceMonthly) || 50) * 10}
+                        value={salePrice}
+                        onChange={(e) => setSalePrice(e.target.value)}
+                        className="w-full pl-8 pr-3 py-2 bg-[var(--panel)] border border-[var(--line)] rounded-[6px] text-sm text-[var(--text)]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                      Accept Studio Offers
+                    </label>
+                    <div className="flex items-center gap-3 mt-2">
                       <input
                         type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleAllowedUse(opt.id)}
-                        className="w-4 h-4 rounded border-app bg-card-app text-[#7C3AED] focus:ring-[#7C3AED]"
+                        checked={acceptOffers}
+                        onChange={(e) => setAcceptOffers(e.target.checked)}
+                        className="w-4 h-4 accent-[var(--glacier)]"
                       />
-                      <span className="text-xs font-medium text-primary-app">
-                        {opt.label}
+                      <span className="text-xs text-[var(--text-dim)]">
+                        Allow studios to submit counter-offers
                       </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 6 — REVIEW & PUBLISH */}
-      {step === 6 && (
-        <div className="vn-card p-6 sm:p-8 space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-xl font-bold text-primary-app">
-              Step 6 — Review & Publish
-            </h2>
-            <p className="text-xs sm:text-sm text-secondary-app">
-              Review your character profile before publishing to the global registry.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 rounded-2xl bg-secondary-app border border-app">
-            {/* Left: Avatar preview */}
-            <div className="w-full h-56 rounded-xl overflow-hidden border border-app bg-card-app flex items-center justify-center">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-tr from-purple-700 to-indigo-800 flex items-center justify-center text-3xl font-black text-white">
-                  {name ? name.slice(0, 2).toUpperCase() : "VN"}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
+          </div>
+        )}
 
-            {/* Right: Summary specs */}
-            <div className="md:col-span-2 space-y-3">
-              <div>
-                <h3 className="text-2xl font-black text-primary-app">{name || "Untitled"}</h3>
-                <p className="text-xs text-[#A78BFA] italic">"{vibeSummary}"</p>
-              </div>
+        {/* STEP 7: DEMO REEL */}
+        {step === 7 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-serif text-2xl text-[var(--text)]">
+                Demo Reel (Optional)
+              </h2>
+              <p className="text-xs text-[var(--text-dim)] mt-1">
+                A complete reel covers 4 categories (Danger, Social, Emotional, Light). Characters with complete reels are featured on the main marketplace; without one they appear in Rising.
+              </p>
+            </div>
 
-              <div className="flex flex-wrap gap-1.5">
-                {genres.map((g) => (
-                  <span
-                    key={g}
-                    className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-elevated-app text-secondary-app border border-app"
+            <div className="space-y-4">
+              {reelScenes.map((scene, idx) => (
+                <div
+                  key={idx}
+                  className="p-4 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px] space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[var(--text)] uppercase">
+                      Scene #{idx + 1}: {scene.category}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReelScenes(reelScenes.filter((_, i) => i !== idx))
+                      }
+                      className="text-[var(--text-dim)] hover:text-[var(--bad)] text-xs flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Remove
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={scene.title}
+                      onChange={(e) => {
+                        const copy = [...reelScenes];
+                        copy[idx].title = e.target.value;
+                        setReelScenes(copy);
+                      }}
+                      placeholder="Scene Title (e.g. The Warehouse Escape)"
+                      className="px-3 py-2 bg-[var(--panel)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                    />
+                    <input
+                      type="text"
+                      value={scene.video_url}
+                      onChange={(e) => {
+                        const copy = [...reelScenes];
+                        copy[idx].video_url = e.target.value;
+                        setReelScenes(copy);
+                      }}
+                      placeholder="YouTube / Vimeo / mp4 link"
+                      className="px-3 py-2 bg-[var(--panel)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex gap-2 flex-wrap">
+                {["danger", "social", "emotional", "light", "extra"].map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() =>
+                      setReelScenes([
+                        ...reelScenes,
+                        {
+                          category: cat,
+                          title: "",
+                          scene_text: "",
+                          video_url: "",
+                        },
+                      ])
+                    }
+                    className="px-3 py-2 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--glacier)] flex items-center gap-1.5"
                   >
-                    {g}
-                  </span>
+                    <Plus className="w-3 h-3" /> Add {cat} scene
+                  </button>
                 ))}
               </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
-                <div className="p-2.5 rounded-lg bg-card-app border border-app">
-                  <span className="text-muted-app block text-[10px] uppercase font-bold">
-                    Character Sheet
-                  </span>
-                  <span
-                    className={`font-bold ${
-                      sheetWordCount >= 1000
-                        ? "text-emerald-400"
-                        : "text-amber-400"
-                    }`}
-                  >
-                    {sheetWordCount} words {sheetWordCount >= 1000 ? "✓" : ""}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-card-app border border-app">
-                  <span className="text-muted-app block text-[10px] uppercase font-bold">
-                    Pricing
-                  </span>
-                  <span className="font-bold text-primary-app">
-                    {isFree
-                      ? "Free Access"
-                      : `$${rentalDaily}/day • $${rentalMonthly}/mo`}
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-xs text-secondary-app">
-                <strong className="text-primary-app">Core Trait:</strong>{" "}
-                {coreTrait || "Not specified"}
-              </div>
             </div>
           </div>
+        )}
 
-          {/* Action Buttons */}
-          <div className="pt-4 border-t border-app flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => saveDraft(false)}
-              className="px-5 py-2.5 rounded-xl border border-app bg-card-app hover:bg-elevated-app text-xs font-semibold text-secondary-app hover:text-primary-app transition-colors cursor-pointer"
-            >
-              Save as Draft
-            </button>
+        {/* STEP 8: REVIEW & PUBLISH */}
+        {step === 8 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-serif text-2xl text-[var(--text)]">
+                Review & Publish Character
+              </h2>
+              <p className="text-xs text-[var(--text-dim)] mt-1">
+                Verify registry criteria. Publishing will run the similarity check and mint the cryptographic registration fingerprint.
+              </p>
+            </div>
 
-            <button
-              type="button"
-              onClick={handlePublish}
-              disabled={isPublishing}
-              className="vn-button-primary px-8 py-3 text-sm font-bold shadow-lg shadow-purple-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isPublishing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Publishing...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>Publish Character</span>
-                </>
+            {publishError && (
+              <div className="p-4 bg-[var(--bad)]/15 border border-[var(--bad)] rounded-[8px] flex items-start gap-3 text-xs text-[var(--bad)]">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{publishError}</span>
+              </div>
+            )}
+
+            {/* Checklist */}
+            <div className="p-5 bg-[var(--panel-raised)] border border-[var(--line)] rounded-[8px] space-y-3">
+              <span className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider block">
+                Publishing Requirements Checklist
+              </span>
+              <div className="divide-y divide-[var(--line)]">
+                {checklist.map((item, i) => (
+                  <div
+                    key={i}
+                    className="py-2.5 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <span className="font-medium text-[var(--text)] block">
+                        {item.title}
+                      </span>
+                      <span className="text-[11px] text-[var(--text-dim)]">
+                        {item.desc}
+                      </span>
+                    </div>
+                    <div>
+                      {item.pass ? (
+                        <span className="px-2 py-0.5 rounded bg-[var(--ok)]/15 text-[var(--ok)] font-medium flex items-center gap-1">
+                          <Check className="w-3 h-3" /> Pass
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded bg-[var(--bad)]/15 text-[var(--bad)] font-medium flex items-center gap-1">
+                          <X className="w-3 h-3" /> Incomplete
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Summary card */}
+            <div className="p-4 bg-[var(--night)] border border-[var(--line)] rounded-[8px] flex items-center gap-4">
+              {portraitUrl && (
+                <img
+                  src={portraitUrl}
+                  alt={name}
+                  className="w-16 h-20 object-cover rounded-[2px] border border-[var(--line)]"
+                />
               )}
+              <div>
+                <h3 className="font-serif text-2xl text-[var(--text)]">
+                  {name || "Untitled"}
+                </h3>
+                <p className="text-xs text-[var(--text-dim)]">
+                  {vibeSummary || "No logline"}
+                </p>
+                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-[var(--text-dim)]">
+                  <span>{genres.join(", ")}</span>
+                  <span>•</span>
+                  <span>{isFree ? "Free" : `$${priceDaily}/day`}</span>
+                  <span>•</span>
+                  <span className="font-mono">{sheetWordCount} words</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Publish Action Button */}
+            <div className="pt-4">
+              <button
+                type="button"
+                onClick={handlePublish}
+                disabled={isPublishing || !allChecksPass}
+                className="w-full py-3.5 bg-[var(--glacier)] text-[var(--glacier-ink)] text-sm font-semibold rounded-[6px] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isPublishing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Running similarity check & minting registration…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Publish character
+                  </>
+                )}
+              </button>
+              {!allChecksPass && (
+                <p className="text-[11px] text-[var(--bad)] text-center mt-2">
+                  Complete all items in the checklist above before publishing.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Step Navigation Bar */}
+        <div className="flex items-center justify-between pt-8 mt-8 border-t border-[var(--line)]">
+          {step > 1 ? (
+            <button
+              type="button"
+              onClick={() => goToStep(step - 1)}
+              className="px-4 py-2 bg-[var(--panel-raised)] border border-[var(--line)] text-[var(--text)] text-xs font-medium rounded-[6px] hover:border-[var(--glacier)] flex items-center gap-1.5"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Previous
             </button>
+          ) : (
+            <div />
+          )}
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => saveDraft(true)}
+              className="px-3.5 py-2 text-xs text-[var(--text-dim)] hover:text-[var(--text)] transition-colors"
+            >
+              Save draft
+            </button>
+
+            {step < STEPS.length && (
+              <button
+                type="button"
+                onClick={() => goToStep(step + 1)}
+                className="px-5 py-2 bg-[var(--glacier)] text-[var(--glacier-ink)] text-xs font-semibold rounded-[6px] hover:brightness-110 flex items-center gap-1.5"
+              >
+                Continue <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
-      )}
-
-      {/* Navigation Buttons: Previous & Next */}
-      <div className="flex items-center justify-between pt-4">
-        {step > 1 ? (
-          <button
-            type="button"
-            onClick={() => setStep(step - 1)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-app bg-card-app text-xs font-semibold text-secondary-app hover:text-primary-app transition-colors cursor-pointer"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Previous Step</span>
-          </button>
-        ) : (
-          <div />
-        )}
-
-        {step < 6 && (
-          <button
-            type="button"
-            onClick={() => setStep(step + 1)}
-            className="vn-button-primary flex items-center gap-1.5 px-6 py-2.5 text-xs font-semibold shadow-md cursor-pointer"
-          >
-            <span>Next: {STEPS[step].name}</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
       </div>
     </div>
   );

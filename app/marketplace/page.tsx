@@ -1,252 +1,365 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Search,
   Filter,
-  Users,
+  X,
+  SlidersHorizontal,
   RotateCcw,
+  Sparkles,
+  ArrowRight,
+  Check,
 } from "lucide-react";
-import { CharacterCard } from "@/components/characters/CharacterCard";
 import { Character } from "@/lib/types";
+import { CharacterPosterCard } from "@/components/characters/CharacterPosterCard";
+import { apiFetch } from "@/lib/api";
 
 const GENRES = [
+  "All",
   "Action",
-  "Comedy",
   "Drama",
   "Thriller",
+  "Comedy",
   "Sci-Fi",
-  "Adventure",
-  "Romance",
+  "Fantasy",
   "Horror",
+  "Adventure",
+  "Crime",
+  "Mystery",
+  "Romance",
 ];
 
-const STATUS_OPTIONS = [
-  { value: "all", label: "All" },
-  { value: "free", label: "Free" },
-  { value: "rent", label: "For Rent" },
-  { value: "purchase", label: "For Sale" },
-];
-
-const SORT_OPTIONS = [
-  { value: "fame", label: "Most Popular" },
-  { value: "newest", label: "Newest" },
-  { value: "price_asc", label: "Price Low-High" },
-  { value: "price_desc", label: "Price High-Low" },
-  { value: "rating", label: "Highest Rated" },
-];
+const TIERS = ["all", "newcomer", "rising", "established", "veteran", "legend"];
 
 export default function MarketplacePage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState("all");
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<
+    "all" | "free" | "rent" | "sale" | "rising"
+  >("all");
+  const [selectedGenre, setSelectedGenre] = useState("All");
+  const [selectedTier, setSelectedTier] = useState("all");
   const [selectedSort, setSelectedSort] = useState("fame");
+  const [trialOnly, setTrialOnly] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);
+
+  // Compare selection (2-3 items)
+  const [comparedIds, setComparedIds] = useState<string[]>([]);
 
   const fetchCharacters = async () => {
     setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (selectedGenres.length > 0) params.set("genre", selectedGenres.join(","));
-      if (selectedStatus !== "all") params.set("type", selectedStatus);
-      if (selectedSort) params.set("sort", selectedSort);
+    const params = new URLSearchParams();
+    if (search.trim()) params.set("search", search.trim());
+    if (selectedGenre !== "All") params.set("genre", selectedGenre);
+    if (selectedTier !== "all") params.set("tier", selectedTier);
+    if (selectedSort) params.set("sort", selectedSort);
 
-      const res = await fetch(`/api/characters?${params.toString()}`);
-      const data = await res.json();
-      if (data.characters) setCharacters(data.characters);
-    } catch (e) {
-      console.warn("Failed to fetch characters", e);
-    } finally {
-      setLoading(false);
+    if (activeTab === "free") {
+      params.set("price_filter", "free");
+    } else if (activeTab === "rent") {
+      params.set("price_filter", "rent");
+    } else if (activeTab === "sale") {
+      params.set("price_filter", "sale");
+    }
+
+    const res = await apiFetch<{ characters: Character[] }>(
+      `/api/characters?${params.toString()}`
+    );
+    setLoading(false);
+    if (res.ok && res.data.characters) {
+      let list = res.data.characters;
+      // Filter for Rising tab: no demo reel or below fame threshold 100
+      if (activeTab === "rising") {
+        list = list.filter((c) => c.fame_score < 100 || c.fame_tier === "newcomer" || c.fame_tier === "rising");
+      }
+      if (trialOnly) {
+        list = list.filter((c) => c.trial_enabled);
+      }
+      setCharacters(list);
     }
   };
 
   useEffect(() => {
     fetchCharacters();
-  }, [selectedStatus, selectedGenres, selectedSort]);
+  }, [activeTab, selectedGenre, selectedTier, selectedSort, trialOnly]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     fetchCharacters();
   };
 
-  const toggleGenre = (genre: string) => {
-    setSelectedGenres((prev) =>
-      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
-    );
+  const toggleCompare = (id: string) => {
+    if (comparedIds.includes(id)) {
+      setComparedIds(comparedIds.filter((x) => x !== id));
+    } else {
+      if (comparedIds.length >= 3) {
+        setComparedIds([...comparedIds.slice(1), id]);
+      } else {
+        setComparedIds([...comparedIds, id]);
+      }
+    }
   };
 
-  const resetFilters = () => {
+  const clearAllFilters = () => {
     setSearch("");
-    setSelectedStatus("all");
-    setSelectedGenres([]);
+    setActiveTab("all");
+    setSelectedGenre("All");
+    setSelectedTier("all");
     setSelectedSort("fame");
+    setTrialOnly(false);
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col gap-8">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-app pb-6">
+    <div className="max-w-7xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-[var(--line)]">
         <div>
-          <span className="text-xs font-bold tracking-wider text-[#7C3AED] uppercase">
-            Character Identity Registry
+          <span className="text-xs font-mono text-[var(--glacier)] uppercase tracking-wider">
+            Identity Registry
           </span>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-primary-app tracking-tight mt-1">
-            Character Marketplace
+          <h1 className="font-serif text-4xl sm:text-5xl text-[var(--text)] mt-1">
+            Character Talent Marketplace
           </h1>
-          <p className="text-sm text-secondary-app max-w-2xl mt-1.5">
-            Rent or buy verified AI character personalities. The intelligence layer applies their distinct behavior, tone, and physical habits into Claude and ChatGPT.
+          <p className="text-sm text-[var(--text-dim)] max-w-xl mt-1.5">
+            Rent verified AI character identities. Describe scenes in Claude, ChatGPT or workspace — our server writes how they actually behave.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-full bg-elevated-app border border-app text-secondary-app shrink-0">
-          <Users className="w-3.5 h-3.5 text-[#7C3AED]" />
-          <span>{characters.length} Registered Identities</span>
+        {/* Search Input */}
+        <form onSubmit={handleSearchSubmit} className="relative w-full md:w-80">
+          <Search className="w-4 h-4 absolute left-3 top-3 text-[var(--text-dim)]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search characters or tags…"
+            className="w-full pl-9 pr-4 py-2 bg-[var(--panel)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)] placeholder-[var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[var(--glacier)]"
+          />
+        </form>
+      </div>
+
+      {/* Tabs and Quick Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-6 pb-4">
+        {/* The 5 Required Tabs */}
+        <div className="flex gap-1 overflow-x-auto p-1 bg-[var(--panel)] border border-[var(--line)] rounded-[8px] text-xs">
+          {[
+            { id: "all", label: "All Talent" },
+            { id: "free", label: "Free" },
+            { id: "rent", label: "For Rent" },
+            { id: "sale", label: "For Sale" },
+            { id: "rising", label: "Rising" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-3 py-1.5 rounded-[5px] font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "bg-[var(--panel-raised)] text-[var(--text)] font-semibold shadow-sm"
+                  : "text-[var(--text-dim)] hover:text-[var(--text)]"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Filters & Sorting */}
+        <div className="flex items-center gap-3">
+          <select
+            value={selectedSort}
+            onChange={(e) => setSelectedSort(e.target.value)}
+            className="px-3 py-1.5 bg-[var(--panel)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)]"
+          >
+            <option value="fame">Sort by: Fame Score</option>
+            <option value="rating">Sort by: Rating</option>
+            <option value="newest">Sort by: Newest</option>
+            <option value="price_asc">Price: Low to High</option>
+            <option value="price_desc">Price: High to Low</option>
+            <option value="rentals">Most Rented</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setShowDrawer(!showDrawer)}
+            className="px-3 py-1.5 bg-[var(--panel)] border border-[var(--line)] rounded-[6px] text-xs text-[var(--text)] hover:border-[var(--glacier)] flex items-center gap-1.5"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Filters
+          </button>
         </div>
       </div>
 
-      {/* Main Layout: Left Sidebar + Right Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
-        {/* ================= LEFT SIDEBAR FILTERS ================= */}
-        <aside className="w-full lg:col-span-1 vn-card p-5 space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-app">
-            <div className="flex items-center gap-2 text-sm font-bold text-primary-app">
-              <Filter className="w-4 h-4 text-[#7C3AED]" />
-              <span>Filters</span>
-            </div>
+      {/* Collapsible Filter Panel */}
+      {showDrawer && (
+        <div className="p-5 mb-6 bg-[var(--panel)] border border-[var(--line)] rounded-[10px] space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+            <span className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+              Filter Talent
+            </span>
             <button
-              onClick={resetFilters}
-              className="text-xs text-muted-app hover:text-[#7C3AED] flex items-center gap-1 transition-colors"
+              type="button"
+              onClick={clearAllFilters}
+              className="text-xs text-[var(--glacier)] hover:underline flex items-center gap-1"
             >
-              <RotateCcw className="w-3 h-3" />
-              <span>Reset</span>
+              <RotateCcw className="w-3 h-3" /> Clear filters
             </button>
           </div>
 
-          {/* 1. Search by name */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-muted-app">
-              Search by name
-            </label>
-            <form onSubmit={handleSearchSubmit} className="relative">
-              <Search className="w-4 h-4 text-muted-app absolute left-3 top-3" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search character name..."
-                className="vn-input w-full pl-9 pr-3 py-2 text-xs"
-              />
-            </form>
-          </div>
-
-          {/* 2. Status Filter */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-muted-app">
-              Status
-            </label>
-            <div className="grid grid-cols-2 gap-1.5">
-              {STATUS_OPTIONS.map((status) => (
-                <button
-                  key={status.value}
-                  type="button"
-                  onClick={() => setSelectedStatus(status.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-center border transition-all ${
-                    selectedStatus === status.value
-                      ? "bg-[#7C3AED] border-[#7C3AED] text-white shadow-sm"
-                      : "bg-secondary-app border-app text-secondary-app hover:border-[#7C3AED]"
-                  }`}
-                >
-                  {status.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 3. Genre Checkboxes */}
-          <div className="space-y-2.5">
-            <label className="text-xs font-bold uppercase tracking-wider text-muted-app">
-              Genres
-            </label>
-            <div className="space-y-1.5">
-              {GENRES.map((genre) => {
-                const checked = selectedGenres.includes(genre);
-                return (
-                  <label
-                    key={genre}
-                    className="flex items-center gap-2.5 text-xs text-secondary-app hover:text-primary-app cursor-pointer select-none"
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs">
+            {/* Genre */}
+            <div>
+              <span className="text-[var(--text-dim)] font-medium block mb-2">
+                Genre
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {GENRES.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setSelectedGenre(g)}
+                    className={`px-2 py-1 rounded-[4px] border ${
+                      selectedGenre === g
+                        ? "bg-[var(--glacier)] text-[var(--glacier-ink)] border-[var(--glacier)]"
+                        : "bg-[var(--panel-raised)] text-[var(--text-dim)] border-[var(--line)] hover:text-[var(--text)]"
+                    }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleGenre(genre)}
-                      className="rounded border-app text-[#7C3AED] focus:ring-[#7C3AED] w-4 h-4 accent-[#7C3AED]"
-                    />
-                    <span>{genre}</span>
-                  </label>
-                );
-              })}
+                    {g}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          {/* 4. Sort Options */}
-          <div className="space-y-2 pt-2 border-t border-app">
-            <label className="text-xs font-bold uppercase tracking-wider text-muted-app">
-              Sort By
-            </label>
-            <select
-              value={selectedSort}
-              onChange={(e) => setSelectedSort(e.target.value)}
-              className="vn-input w-full px-3 py-2 text-xs font-medium cursor-pointer"
-            >
-              {SORT_OPTIONS.map((sort) => (
-                <option key={sort.value} value={sort.value}>
-                  {sort.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </aside>
+            {/* Fame Tier */}
+            <div>
+              <span className="text-[var(--text-dim)] font-medium block mb-2">
+                Fame Tier
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {TIERS.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setSelectedTier(t)}
+                    className={`px-2 py-1 rounded-[4px] uppercase text-[10px] border ${
+                      selectedTier === t
+                        ? "bg-[var(--marquee)] text-black border-[var(--marquee)] font-bold"
+                        : "bg-[var(--panel-raised)] text-[var(--text-dim)] border-[var(--line)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* ================= RIGHT CHARACTER GRID ================= */}
-        {/* 3 col desktop / 2 tablet / 1 mobile */}
-        <div className="w-full lg:col-span-3">
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div
-                  key={i}
-                  className="vn-card h-80 animate-pulse bg-elevated-app/50 border-app"
+            {/* Trial Check */}
+            <div>
+              <span className="text-[var(--text-dim)] font-medium block mb-2">
+                Availability
+              </span>
+              <label className="flex items-center gap-2 cursor-pointer text-[var(--text)]">
+                <input
+                  type="checkbox"
+                  checked={trialOnly}
+                  onChange={(e) => setTrialOnly(e.target.checked)}
+                  className="w-4 h-4 accent-[var(--glacier)]"
                 />
-              ))}
+                <span>3-Day Trial Available Only</span>
+              </label>
             </div>
-          ) : characters.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {characters.map((character) => (
-                <CharacterCard key={character.id} character={character} />
-              ))}
-            </div>
-          ) : (
-            <div className="vn-card p-12 text-center flex flex-col items-center justify-center gap-3">
-              <Users className="w-12 h-12 text-muted-app opacity-40" />
-              <h3 className="text-lg font-bold text-primary-app">
-                No characters found
-              </h3>
-              <p className="text-sm text-secondary-app max-w-sm">
-                Try clearing or adjusting your search filters.
-              </p>
-              <button
-                onClick={resetFilters}
-                className="vn-button-primary px-4 py-2 text-xs font-semibold mt-2"
-              >
-                Reset All Filters
-              </button>
-            </div>
-          )}
+          </div>
         </div>
+      )}
+
+      {/* Results Count */}
+      <div className="pb-4 text-xs text-[var(--text-dim)]">
+        Showing {characters.length} {characters.length === 1 ? "character" : "characters"}
       </div>
+
+      {/* Poster Cards Grid */}
+      {loading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+            <div
+              key={n}
+              className="aspect-[4/5] bg-[var(--panel)] border border-[var(--line)] rounded-[2px] animate-pulse"
+            />
+          ))}
+        </div>
+      ) : characters.length === 0 ? (
+        /* Empty State */
+        <div className="py-20 px-4 text-center max-w-md mx-auto space-y-4">
+          <div className="w-12 h-12 mx-auto rounded-full bg-[var(--panel-raised)] border border-[var(--line)] flex items-center justify-center text-[var(--text-dim)]">
+            <Search className="w-6 h-6" />
+          </div>
+          <h3 className="font-serif text-2xl text-[var(--text)]">
+            No Characters Found
+          </h3>
+          <p className="text-xs text-[var(--text-dim)] leading-relaxed">
+            {search || selectedGenre !== "All" || selectedTier !== "all"
+              ? "No characters match your filter criteria. Try adjusting your parameters or clear filters."
+              : "Be the first creator to register an original character in the Vynter North identity catalog."}
+          </p>
+
+          <div className="pt-2">
+            {search || selectedGenre !== "All" ? (
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="px-4 py-2 bg-[var(--panel-raised)] border border-[var(--line)] text-xs text-[var(--text)] rounded-[6px] hover:border-[var(--glacier)]"
+              >
+                Clear all filters
+              </button>
+            ) : (
+              <Link
+                href="/dashboard/characters/new"
+                className="px-5 py-2.5 bg-[var(--glacier)] text-[var(--glacier-ink)] text-xs font-semibold rounded-[6px] hover:brightness-110 inline-flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Register a character
+              </Link>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
+          {characters.map((char) => (
+            <CharacterPosterCard
+              key={char.id}
+              character={char}
+              isCompared={comparedIds.includes(char.id)}
+              onToggleCompare={toggleCompare}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Floating Compare Bar */}
+      {comparedIds.length >= 2 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 px-6 py-3.5 bg-[var(--night)] border border-[var(--glacier)] rounded-[10px] shadow-2xl flex items-center gap-4 text-xs">
+          <span className="font-medium text-[var(--text)]">
+            {comparedIds.length} characters selected for comparison
+          </span>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/marketplace/compare?ids=${comparedIds.join(",")}`}
+              className="px-4 py-2 bg-[var(--glacier)] text-[var(--glacier-ink)] font-semibold rounded-[4px] hover:brightness-110 flex items-center gap-1.5"
+            >
+              Compare side-by-side <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+            <button
+              type="button"
+              onClick={() => setComparedIds([])}
+              className="p-1.5 text-[var(--text-dim)] hover:text-[var(--text)]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

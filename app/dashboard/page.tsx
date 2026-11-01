@@ -328,9 +328,13 @@ export default function DashboardOverviewPage() {
   // =====================
   // STUDIO VIEW
   // =====================
-  const activeRentalsList = rentals.filter((r) => r.status === "active");
+  const now = new Date();
+  const activeRentalsList = rentals.filter((r) => {
+    if (r.ended_early) return false;
+    return r.expires_at ? new Date(r.expires_at) >= now : true;
+  });
   const totalCredits = rentals.reduce(
-    (sum, r) => sum + (r.generation_credits || 0),
+    (sum, r) => sum + (r.credits_total || r.generation_credits || 0),
     0
   );
   const totalCreditsUsed = rentals.reduce(
@@ -431,7 +435,7 @@ export default function DashboardOverviewPage() {
             const char = r.character;
             const creditsLeft = Math.max(
               0,
-              r.generation_credits - r.credits_used
+              (r.credits_total || r.generation_credits || 0) - (r.credits_used || 0)
             );
 
             return (

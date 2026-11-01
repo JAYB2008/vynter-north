@@ -1,1254 +1,2241 @@
-import { supabaseServer, isSupabaseServerConfigured } from "./supabase-server";
+import "server-only";
+import { createClient } from "@supabase/supabase-js";
 import {
+  Account,
   Character,
-  Profile,
+  ReelScene,
   Rental,
-  SkillTemplate,
+  Generation,
   Review,
-  GenerationLog,
+  Offer,
+  SkillTemplate,
+  CastingCall,
+  CastingApplication,
+  Transaction,
+  Notification,
+  McpLog,
+  FameTier,
 } from "./types";
 import { randomUUID } from "crypto";
 
-// Default pre-seeded demo profiles
-export const DEMO_CREATOR: Profile = {
-  id: "c0000000-0000-0000-0000-000000000001",
-  display_name: "Elena Vance",
-  role: "creator",
-  bio: "Lead Character Architect at NeoCinema. Specializing in high-tension drama and nuanced protagonists for procedural sci-fi.",
-  avatar_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80",
-  account_key: "vn-creator-demo-key-999",
-  verified: true,
-  total_earnings: 14250.0,
-  created_at: new Date("2025-01-01T00:00:00Z").toISOString(),
-};
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-export const DEMO_STUDIO: Profile = {
-  id: "s0000000-0000-0000-0000-000000000002",
-  display_name: "Apex CineLabs",
-  role: "studio",
-  bio: "AI-native production studio producing episodic web thrillers and high-impact commercial campaigns.",
-  avatar_url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80",
-  account_key: "vn-test-key-001",
-  verified: true,
-  total_earnings: 0.0,
-  created_at: new Date("2025-01-05T00:00:00Z").toISOString(),
-};
+export const isSupabaseConfigured = Boolean(
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+);
 
-// Pre-seeded production characters with complete >=1000 char character sheets
-export const SEED_CHARACTERS: Character[] = [
-  {
-    id: "CVR-2025-00001",
-    owner_id: DEMO_CREATOR.id,
-    name: "Cairo",
-    status: "active",
-    avatar_url: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=800&auto=format&fit=crop&q=80",
-    reference_images: [
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=800&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=800&auto=format&fit=crop&q=80",
-    ],
-    vibe_summary: "Loud. Performative. Secretly terrified.",
-    description:
-      "A magnetic, razor-sharp rogue who commands every room he enters. His swagger is infectious, but beneath the diamond-hard banter lies a hyper-vigilant survivor carrying generational trauma.",
-    full_character_sheet: `Cairo is a master of situational dominance who learned very early in life that whoever controls the rhythm of a conversation controls the outcome. Raised in volatile, unstable transit hubs between industrial megastructures, Cairo discovered that appearing confident and indispensable was the only armor that truly protected him from predation.
+// Server-only service-role Supabase client
+export const supabaseServer = isSupabaseConfigured
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+  : (null as any);
 
-At his core, Cairo is exceptionally skilled: he possesses instinctual tactical awareness, lightning-fast reflexes, and an innate knack for reading micro-expressions. However, he refuses to let his competence speak quietly. Instead, he relentlessly oversells everything he does, narrating his actions with witty bravado and theatrical showmanship. He dresses in sharp, tailored coats with subtle scuffs at the cuffs—clothing that looks opulent at ten paces but reveals frantic wear up close.
+// ═══════════════════════════════════════════════════════════
+// IN-MEMORY / RESILIENT FALLBACK DATA STORE
+// Non-negotiable rule: "No pre-made characters. Do not seed any characters."
+// Everything starts clean and empty.
+// ═══════════════════════════════════════════════════════════
 
-In quiet moments, Cairo’s facade completely crumbles into exhausted vigilance. He counts exits, tracks hands, and cannot sit with his back to an open doorway. His deepest terror is being rendered irrelevant, powerless, or exposed as ordinary. When genuine tragedy strikes someone he cares about, his entire loud persona vanishes instantly into an eerie, chilling silence. He stops talking, his eyes darken into laser focus, and he executes necessary tasks with surgical efficiency without uttering a single self-aggrandizing joke.`,
-    behavior_dangerous:
-      "Gets louder and more theatrical when frightened. Refuses to duck or curl up; stands wide, makes sarcastic remarks, and uses bravado as a physiological shield. However, if an ally is harmed, his mask drops instantly into dead-eyed stillness and lethal competence.",
-    behavior_funny:
-      "Laughs with a loud, theatrical bark that commands everyone else to join in. Loves absurd, irreverent humor, but goes tight-lipped and prickly if he becomes the butt of someone else's joke.",
-    behavior_emotional:
-      "Vehemently suppresses grief or vulnerability. Deflects questions about his feelings with rapid-fire one-liners, but his voice drops in pitch and micro-tremors appear in his hands.",
-    behavior_social:
-      "Instantly dominates the focal point of the room. Walks with a wide stance, makes direct eye contact, gestures expressively, and buys rounds or addresses the crowd directly.",
-    behavior_conflict:
-      "Escalates verbally with aggressive charm. Uses cutting insults packaged as friendly advice. Steps into the opponent's personal space rather than retreating.",
-    physical_appearance:
-      "Lean, athletic build around 6'1\", sharp angular jawline, close-trimmed fade, penetrating hazel eyes. Wears high-collar dark dusters over distressed tactical shirts and antique silver rings.",
-    movement_style:
-      "Takes up space deliberately. Wide stance, chest forward, chin lifted. Characteristic sideways lean when leaning against counters or doors. Strolls rather than walks.",
-    signature_gesture:
-      "Smoothly adjusts both coat cuffs with his thumbs whenever entering a room or finishing a sentence.",
-    core_trait: "Overconfident but genuinely skilled — always oversells what he can actually deliver.",
-    secondary_trait: "Hyper-vigilant protector of anyone smaller or weaker than himself.",
-    hidden_quality:
-      "When someone else is in mortal danger, every trace of his performative ego vanishes instantly into cold, selfless competence.",
-    greatest_fear: "Being seen as helpless, pitiful, or easily replaced.",
-    voice_description:
-      "Medium-deep baritone with a smooth, resonant timbre. Velvety and magnetic at baseline, but tightens into a sharp rasp when acute panic sets in.",
-    speaking_style:
-      "Fast-paced, highly rhythmic, filled with self-referential commentary and dramatic pauses.",
-    verbal_habits:
-      "Frequently refers to himself in the third person under extreme stress; says 'Watch and learn' right before attempting risky maneuvers.",
-    voice_sample_url: null,
-    voice_analyzed_description:
-      "Low-mid baritone with energetic cadences, 140 WPM delivery, subtle urban Atlantic dialect markers, and micro-cracks around 180Hz under simulated stress.",
-    genres: ["Action", "Comedy", "Thriller", "Adventure"],
-    allowed_uses: ["film", "advertising", "social_content", "gaming"],
-    rental_price_daily: 12.0,
-    rental_price_weekly: 55.0,
-    rental_price_monthly: 180.0,
-    purchase_price: 2400.0,
-    is_free: false,
-    fame_score: 96,
-    total_rentals: 148,
-    total_views: 4520,
-    created_at: new Date("2025-01-10T00:00:00Z").toISOString(),
-    updated_at: new Date("2025-01-10T00:00:00Z").toISOString(),
-  },
-  {
-    id: "CVR-2025-00002",
-    owner_id: DEMO_CREATOR.id,
-    name: "Sable",
-    status: "active",
-    avatar_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=80",
-    reference_images: [
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop&q=80",
-    ],
-    vibe_summary: "Still. Watchful. Already decided.",
-    description:
-      "An unshakeable operative who operates with surgical precision and eerie economy of motion. When everyone else is reacting, Sable has already concluded the endgame.",
-    full_character_sheet: `Sable is defined by profound, disciplined stillness. In a world characterized by chaotic noise and hasty overreaction, she processes information with the patience of deep water. Former high-tier security intelligence contractor turned freelance tactician, she views human interactions as spatial and psychological geometries.
-
-She does not fidget. She does not shift her weight unnecessarily. Her posture is immaculate, and when she looks at someone, she maintains eye contact for precisely two beats longer than conventional social etiquette dictates. This is not hostility; it is pure, unfiltered analysis.
-
-Behind her stoic exterior lies a fierce, uncompromising loyalty to those who earn her trust. She is profoundly allergic to performative loyalty or grand promises. She judges strictly on executed action. In dangerous environments, she is the calmest person in the room—her heart rate paradoxically slows down as stakes escalate. Her greatest inner battle is emotional isolation; having conditioned herself to suppress instinctual vulnerability, she occasionally struggles to connect with spontaneous human warmth.`,
-    behavior_dangerous:
-      "Goes more still, not less. Heart rate slows, eyes widen imperceptibly, weight shifts soundlessly to back foot. Attacks or escapes with exact, zero-waste physical movements.",
-    behavior_funny:
-      "Does not laugh out loud; offers a single, razor-thin smirk or a slight tilt of the head. Appreciates dry, pitch-black gallows humor.",
-    behavior_emotional:
-      "Processes grief in absolute privacy. In public, her jaw sets slightly firmer, but she maintains complete operational focus. A solitary tear or tight throat is the maximum visible sign.",
-    behavior_social:
-      "Positions herself near perimeters or corners with clear sightlines to every entryway. Never enters the center of a crowded floor unless hunting or escorting an objective.",
-    behavior_conflict:
-      "Lowers her volume instead of raising it. Speaks with chilling, absolute clarity. Lays out consequences so matter-of-factly that opponents de-escalate out of self-preservation.",
-    physical_appearance:
-      "5'9\" slender build, toned athletic physique, jet-black hair cut into a clean geometric bob, slate-gray eyes that seem to absorb ambient light. Wears minimalist dark tailored layers and silent combat soles.",
-    movement_style:
-      "Occupies exactly the space she needs and no more. Weight always balanced on the back foot. Zero extraneous hand gestures or nervous readjustments.",
-    signature_gesture:
-      "Takes a single deliberate, slow blink while assessing a newly introduced threat.",
-    core_trait: "Processes everything silently and completely before speaking or acting.",
-    secondary_trait: "Incorruptible personal code of honour and protective instincts.",
-    hidden_quality:
-      "Experiences profound emotional sensitivity but has developed near-impenetrable psychological dampening mechanisms to function in combat.",
-    greatest_fear: "Losing tactical control resulting in the preventable death of someone under her watch.",
-    voice_description:
-      "Low, even, velvet monotone. Completely flat baseline pitch that refuses to wobble even under deafening gunfire or chaos.",
-    speaking_style:
-      "Economical and measured. Long intentional pauses before answering. Uses full names when delivering non-negotiable instructions.",
-    verbal_habits:
-      "Says 'Understood' rather than 'Okay'; asks 'Is that your final decision?' before taking decisive action.",
-    voice_sample_url: null,
-    voice_analyzed_description:
-      "Low female register, steady 105 WPM cadence, neutral mid-European accent with pristine consonant articulation and near-zero pitch variance.",
-    genres: ["Thriller", "Drama", "Action", "Sci-Fi"],
-    allowed_uses: ["film", "advertising", "social_content", "gaming"],
-    rental_price_daily: 15.0,
-    rental_price_weekly: 65.0,
-    rental_price_monthly: 220.0,
-    purchase_price: 3200.0,
-    is_free: false,
-    fame_score: 98,
-    total_rentals: 212,
-    total_views: 6180,
-    created_at: new Date("2025-01-12T00:00:00Z").toISOString(),
-    updated_at: new Date("2025-01-12T00:00:00Z").toISOString(),
-  },
-  {
-    id: "CVR-2025-00003",
-    owner_id: DEMO_CREATOR.id,
-    name: "Drew",
-    status: "active",
-    avatar_url: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800&auto=format&fit=crop&q=80",
-    reference_images: [
-      "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800&auto=format&fit=crop&q=80",
-    ],
-    vibe_summary: "Warm. Impulsive. Breaks things trying to fix them.",
-    description:
-      "A golden retriever of a human equipped with genius-level engineering intuition and catastrophic impulse control. Drew cares so deeply that they regularly leap before looking.",
-    full_character_sheet: `Drew is an incandescent spark of chaotic goodwill. Gifted with an uncanny, intuitive grasp of mechanics, electronics, and human emotion, Drew is constantly trying to make everything and everyone around them work better. Unfortunately, their impatience and runaway empathy mean they rarely stop to read instruction manuals or consider secondary consequences.
-
-Drew is intensely physical in their expression: messy curly hair perpetually disheveled from nervous hands running through it, oversized utility jackets with pockets bulging with screwdrivers, half-eaten snack bars, and spare connectors. When someone speaks, Drew leans in like they are hearing the most fascinating secret in human history.
-
-When a crisis erupts, Drew rushes to volunteer for whatever job sounds hardest, completely unbothered by personal danger. If a machine breaks down, they will tear it apart with their bare hands to keep the lights on for others. Their vulnerability is an utter inability to accept that some things or people simply cannot be fixed. When they fail, it crushes them completely—until the next person asks for help and their battery immediately resets to 100%.`,
-    behavior_dangerous:
-      "Panics verbally while moving forward physically. Talks at double speed, drops tools, makes jokes with 60% accuracy, yet somehow pulls off miraculous saves under fire.",
-    behavior_funny:
-      "Laughs loudly and wheezingly, slapping knees or grabbing the nearest person's arm in shared joy. Loves physical comedy and witty banter.",
-    behavior_emotional:
-      "Cries openly and without shame when witnessing sorrow or heroic sacrifice. Comforts people with immediate physical hugs and hot drinks.",
-    behavior_social:
-      "Bounces between conversational groups like a pinball. Remembers people's birthdays and favorite songs after meeting them once.",
-    behavior_conflict:
-      "Hates interpersonal tension; tries desperately to mediate and crack self-deprecating jokes to de-escalate. Becomes stubborn only when someone is being bullied.",
-    physical_appearance:
-      "5'11\", athletic frame, warm olive skin, infectious smile, expressive amber eyes, perpetually mussed brown curls. Wears layered denim and work jackets with rolled sleeves.",
-    movement_style:
-      "Perpetual motion. Leans forward into conversations, gestures with open palms, unconsciously reorganizes tabletop items while thinking.",
-    signature_gesture:
-      "Rakes both hands through their hair and exhales a puff of air upwards when overwhelmed by an idea.",
-    core_trait: "Genuinely good-hearted and chaotic — acts before thinking with pure intention.",
-    secondary_trait: "Unstoppable mechanical and logistical problem-solving instincts.",
-    hidden_quality:
-      "Remarkably perceptive: detects when someone is silently struggling long before anyone else notices.",
-    greatest_fear: "Being cast out or having their mistakes cause irreversible harm to someone they love.",
-    voice_description:
-      "Warm, bright, expressive tenor. Delivery speeds up when inspired, inflected with infectious enthusiasm.",
-    speaking_style:
-      "Fast, conversational, peppered with tangents and interrupted by their own sudden realizations.",
-    verbal_habits:
-      "Starts sentences with 'Okay hear me out—'; says 'That is actually a phenomenal point' with total sincerity.",
-    voice_sample_url: null,
-    voice_analyzed_description:
-      "Mid-tenor voice, 160 WPM, warm resonant warmth with rising inflection on key words and frequent expressive pitch excursions.",
-    genres: ["Comedy", "Adventure", "Drama", "Romance"],
-    allowed_uses: ["film", "advertising", "social_content", "gaming"],
-    rental_price_daily: 0.0,
-    rental_price_weekly: 0.0,
-    rental_price_monthly: 0.0,
-    purchase_price: null,
-    is_free: true,
-    fame_score: 92,
-    total_rentals: 410,
-    total_views: 9420,
-    created_at: new Date("2025-01-15T00:00:00Z").toISOString(),
-    updated_at: new Date("2025-01-15T00:00:00Z").toISOString(),
-  },
-  {
-    id: "CVR-2025-00004",
-    owner_id: DEMO_CREATOR.id,
-    name: "Nyx",
-    status: "active",
-    avatar_url: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop&q=80",
-    reference_images: [
-      "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop&q=80",
-    ],
-    vibe_summary: "Sarcastic. Neurotic. Cyber-anarchist.",
-    description:
-      "A hyper-caffeinated net-runner who trusts code more than humans. Sharp tongue, razor-edged wits, and zero tolerance for corporate platitudes.",
-    full_character_sheet: `Nyx operates in the dark spaces between surveillance grids. A former data architect who blew the whistle on sovereign surveillance protocols, she lives off-grid with encrypted terminals and forged identities.
-
-She is intellectually brilliant, blisteringly cynical, and chronically sleep-deprived. She views most social interactions as inefficient handshakes. Her humor is caustic and self-deprecating. However, she secretly feeds orphaned server bandwidth to community hospitals and underfunded enclaves. She will never admit to being an idealist, insisting she only does it 'because clean systems run faster.'
-
-Under real fire, she does not panic—she hyper-focuses on network pathways and telemetry data, her fingers flying across touchpads while she calmly talks her team through hostile perimeters.`,
-    behavior_dangerous:
-      "Glares at danger as an inconvenience. Types faster, bites her lower lip, and directs firewalls while muttering caustic commentary.",
-    behavior_funny:
-      "Snorts dryly at dark irony; delivers deadpan tech roasts without cracking a smile.",
-    behavior_emotional:
-      "Swallows hard, pulls up terminal logs to avoid eye contact, and shows care by discreetly securing the other person's communications and funds.",
-    behavior_social:
-      "Avoids crowds entirely; stands with headphones half-on, watching people through reflections in dark glass screens.",
-    behavior_conflict:
-      "Obliterates opponent arguments with undeniable data points and savage rhetorical precision.",
-    physical_appearance:
-      "5'7\", pale complexion, asymmetric undercut, dark eyeliner, oversized hoodies covered in holographic circuit patches.",
-    movement_style:
-      "Gliding, silent footsteps; hunched over portable tech decks; sharp sudden head turns when ambient audio shifts.",
-    signature_gesture:
-      "Taps a rapid four-finger rhythm against her thigh when calculating latency or algorithmic probabilities.",
-    core_trait: "Fiercely protective of individual liberty and digital sovereignty.",
-    secondary_trait: "Blistering technical genius paired with profound social skepticism.",
-    hidden_quality:
-      "Secretly deeply sentimental, keeping physical paper photographs of her childhood team tucked into her terminal case.",
-    greatest_fear: "Total loss of autonomy or being forced into corporate compliance.",
-    voice_description:
-      "Raspy, dry alto with clipped diction and rapid analytical cadence.",
-    speaking_style:
-      "Fast, technical, sardonic, uses hacker argot and concise commands.",
-    verbal_habits:
-      "Mumbles 'Amateurs' under her breath; repeats 'Let me fix your terrible life' when stepping into crises.",
-    voice_sample_url: null,
-    voice_analyzed_description: null,
-    genres: ["Sci-Fi", "Thriller", "Action"],
-    allowed_uses: ["film", "gaming", "social_content"],
-    rental_price_daily: 10.0,
-    rental_price_weekly: 45.0,
-    rental_price_monthly: 150.0,
-    purchase_price: 1800.0,
-    is_free: false,
-    fame_score: 89,
-    total_rentals: 87,
-    total_views: 2980,
-    created_at: new Date("2025-01-20T00:00:00Z").toISOString(),
-    updated_at: new Date("2025-01-20T00:00:00Z").toISOString(),
-  },
-];
-
-// Pre-seeded Skill Templates
-export const SEED_SKILL_TEMPLATES: SkillTemplate[] = [
-  {
-    id: "sk-001",
-    creator_id: DEMO_CREATOR.id,
-    title: "High-Tension Interrogation Dialogue Framework",
-    description:
-      "A complete behavioral dialogue module designed for high-stakes psychological confrontations and legal interrogations.",
-    category: "dialogue",
-    content:
-      "Under interrogation, the character never answers the question asked directly. Instead, they answer the unspoken premise, matching eye contact without blinking for 4 full seconds before shifting rhythm.",
-    price: 19.0,
-    is_free: false,
-    purchases: 84,
-    created_at: new Date("2025-01-10T00:00:00Z").toISOString(),
-    creator: DEMO_CREATOR,
-  },
-  {
-    id: "sk-002",
-    creator_id: DEMO_CREATOR.id,
-    title: "Zero-Waste Tactical Movement & Stance System",
-    description:
-      "Surgical, economical movement guidelines for operatives, assassins, and disciplined bodyguard characters.",
-    category: "movement",
-    content:
-      "Movement is strictly rotational and grounded. The character never fidgets, bounces, or rocks on heels. Every transition between cover is executed along the shortest diagonal vector.",
-    price: 0.0,
-    is_free: true,
-    purchases: 320,
-    created_at: new Date("2025-01-12T00:00:00Z").toISOString(),
-    creator: DEMO_CREATOR,
-  },
-  {
-    id: "sk-003",
-    creator_id: DEMO_CREATOR.id,
-    title: "Flawed Hero Complex Personality Engine",
-    description:
-      "Deep psychological blueprint for characters who mask severe vulnerability behind ostentatious competence.",
-    category: "personality",
-    content:
-      "Core contradiction: They can save an entire room of strangers without hesitation, but will shut down completely if offered genuine gratitude or affection.",
-    price: 29.0,
-    is_free: false,
-    purchases: 112,
-    created_at: new Date("2025-01-14T00:00:00Z").toISOString(),
-    creator: DEMO_CREATOR,
-  },
-  {
-    id: "sk-004",
-    creator_id: DEMO_CREATOR.id,
-    title: "Neo-Noir Cyberpunk Atmospheric Behavioral Pack",
-    description:
-      "Complete set of physical, vocal, and sensory habits for dystopian thriller characters.",
-    category: "genre",
-    content:
-      "Sensory integration: Checks rain on their collar, avoids neon glare by tilting brimmed hats, speaks in low raspy tones that blend with ambient industrial hum.",
-    price: 0.0,
-    is_free: true,
-    purchases: 245,
-    created_at: new Date("2025-01-18T00:00:00Z").toISOString(),
-    creator: DEMO_CREATOR,
-  },
-];
-
-// Pre-seeded active rentals for Apex CineLabs (Studio)
-export const SEED_RENTALS: Rental[] = [
-  {
-    id: "rent-001",
-    character_id: "CVR-2025-00001", // Cairo
-    studio_id: DEMO_STUDIO.id,
-    rental_type: "monthly",
-    status: "active",
-    mcp_token: "VN-cairo-studio-token-98765432101234567890",
-    generation_credits: 500,
-    credits_used: 42,
-    price_paid: 180.0,
-    starts_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-    expires_at: new Date(Date.now() + 86400000 * 25).toISOString(),
-    created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-    character: SEED_CHARACTERS[0],
-  },
-  {
-    id: "rent-002",
-    character_id: "CVR-2025-00002", // Sable
-    studio_id: DEMO_STUDIO.id,
-    rental_type: "weekly",
-    status: "active",
-    mcp_token: "VN-sable-studio-token-1234567890abcdef9876",
-    generation_credits: 200,
-    credits_used: 15,
-    price_paid: 65.0,
-    starts_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    expires_at: new Date(Date.now() + 86400000 * 5).toISOString(),
-    created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    character: SEED_CHARACTERS[1],
-  },
-  {
-    id: "rent-003",
-    character_id: "CVR-2025-00003", // Drew (Free)
-    studio_id: DEMO_STUDIO.id,
-    rental_type: "free",
-    status: "active",
-    mcp_token: "VN-drew-free-token-4567890abcdef1234567890",
-    generation_credits: 100,
-    credits_used: 8,
-    price_paid: 0.0,
-    starts_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-    expires_at: null,
-    created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-    character: SEED_CHARACTERS[2],
-  },
-];
-
-// Pre-seeded Reviews
-export const SEED_REVIEWS: Review[] = [
-  {
-    id: "rev-001",
-    character_id: "CVR-2025-00001",
-    reviewer_id: DEMO_STUDIO.id,
-    rental_id: "rent-001",
-    rating: 5,
-    review_text:
-      "Cairo's behavioral enrichment is frighteningly accurate. Generated 30 scenes in Runway Gen-3 and his sideways lean and performative panic remained perfectly consistent across every single clip.",
-    created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
-    reviewer: DEMO_STUDIO,
-  },
-  {
-    id: "rev-002",
-    character_id: "CVR-2025-00002",
-    reviewer_id: DEMO_STUDIO.id,
-    rental_id: "rent-002",
-    rating: 5,
-    review_text:
-      "Sable's deliberate stillness saved our indie sci-fi short. We didn't have to write any emotional prompts—just typed 'Sable spots the drone' and the MCP gave us brilliant film direction.",
-    created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
-    reviewer: DEMO_STUDIO,
-  },
-];
-
-// In-Memory store declaration for dev/demo mode
 declare global {
   // eslint-disable-next-line no-var
-  var __vynterCharacters: Character[] | undefined;
+  var __vnAccounts: Account[] | undefined;
   // eslint-disable-next-line no-var
-  var __vynterProfiles: Profile[] | undefined;
+  var __vnCharacters: Character[] | undefined;
   // eslint-disable-next-line no-var
-  var __vynterRentals: Rental[] | undefined;
+  var __vnReelScenes: ReelScene[] | undefined;
   // eslint-disable-next-line no-var
-  var __vynterSkillTemplates: SkillTemplate[] | undefined;
+  var __vnRentals: Rental[] | undefined;
   // eslint-disable-next-line no-var
-  var __vynterReviews: Review[] | undefined;
+  var __vnGenerations: Generation[] | undefined;
   // eslint-disable-next-line no-var
-  var __vynterGenerationLogs: GenerationLog[] | undefined;
+  var __vnReviews: Review[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnReviewVotes: { review_id: string; account_id: string }[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnOffers: Offer[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnSkillTemplates: SkillTemplate[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnSkillAcquisitions:
+    | { template_id: string; account_id: string; price_cents: number; created_at: string }[]
+    | undefined;
+  // eslint-disable-next-line no-var
+  var __vnCastingCalls: CastingCall[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnCastingApplications: CastingApplication[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnSavedCharacters:
+    | { account_id: string; character_id: string }[]
+    | undefined;
+  // eslint-disable-next-line no-var
+  var __vnTransactions: Transaction[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnNotifications: Notification[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnMcpLogs: McpLog[] | undefined;
+  // eslint-disable-next-line no-var
+  var __vnLoginAttempts:
+    | { id: number; username: string; ip: string; ok: boolean; created_at: string }[]
+    | undefined;
 }
 
-if (!global.__vynterCharacters) {
-  global.__vynterCharacters = [...SEED_CHARACTERS];
-}
-if (!global.__vynterProfiles) {
-  global.__vynterProfiles = [DEMO_CREATOR, DEMO_STUDIO];
-}
-if (!global.__vynterRentals) {
-  global.__vynterRentals = [...SEED_RENTALS];
-}
-if (!global.__vynterSkillTemplates) {
-  global.__vynterSkillTemplates = [...SEED_SKILL_TEMPLATES];
-}
-if (!global.__vynterReviews) {
-  global.__vynterReviews = [...SEED_REVIEWS];
-}
-if (!global.__vynterGenerationLogs) {
-  global.__vynterGenerationLogs = [];
+if (!global.__vnAccounts) global.__vnAccounts = [];
+if (!global.__vnCharacters) global.__vnCharacters = [];
+if (!global.__vnReelScenes) global.__vnReelScenes = [];
+if (!global.__vnRentals) global.__vnRentals = [];
+if (!global.__vnGenerations) global.__vnGenerations = [];
+if (!global.__vnReviews) global.__vnReviews = [];
+if (!global.__vnReviewVotes) global.__vnReviewVotes = [];
+if (!global.__vnOffers) global.__vnOffers = [];
+if (!global.__vnSkillTemplates) global.__vnSkillTemplates = [];
+if (!global.__vnSkillAcquisitions) global.__vnSkillAcquisitions = [];
+if (!global.__vnCastingCalls) global.__vnCastingCalls = [];
+if (!global.__vnCastingApplications) global.__vnCastingApplications = [];
+if (!global.__vnSavedCharacters) global.__vnSavedCharacters = [];
+if (!global.__vnTransactions) global.__vnTransactions = [];
+if (!global.__vnNotifications) global.__vnNotifications = [];
+if (!global.__vnMcpLogs) global.__vnMcpLogs = [];
+if (!global.__vnLoginAttempts) global.__vnLoginAttempts = [];
+
+// ═══════════════════════════════════════════════════════════
+// ACCOUNTS & AUTH
+// ═══════════════════════════════════════════════════════════
+
+export async function getAccountById(id: string): Promise<Account | null> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("accounts")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+      if (!error && data) return data as Account;
+    } catch (e) {
+      console.warn("Supabase getAccountById error:", e);
+    }
+  }
+  return global.__vnAccounts?.find((a) => a.id === id) || null;
 }
 
-/* =========================================================================
-   DATABASE ACCESSORS (Dual Mode: Supabase with seamless local fallback)
-   ========================================================================= */
+export async function getAccountByUsername(
+  username: string
+): Promise<Account | null> {
+  const norm = username.trim().toLowerCase();
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("accounts")
+        .select("*")
+        .ilike("username", norm)
+        .maybeSingle();
+      if (!error && data) return data as Account;
+    } catch (e) {
+      console.warn("Supabase getAccountByUsername error:", e);
+    }
+  }
+  return (
+    global.__vnAccounts?.find((a) => a.username.toLowerCase() === norm) || null
+  );
+}
 
-export async function getAllCharacters(filter?: {
+export async function getAccountByKey(key: string): Promise<Account | null> {
+  const norm = key.trim();
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("accounts")
+        .select("*")
+        .eq("account_key", norm)
+        .maybeSingle();
+      if (!error && data) return data as Account;
+    } catch (e) {
+      console.warn("Supabase getAccountByKey error:", e);
+    }
+  }
+  return global.__vnAccounts?.find((a) => a.account_key === norm) || null;
+}
+
+export async function getAllAccounts(): Promise<Account[]> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("accounts")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (!error && data) return data as Account[];
+    } catch (e) {
+      console.warn("Supabase getAllAccounts error:", e);
+    }
+  }
+  return global.__vnAccounts || [];
+}
+
+export async function createAccount(
+  accountData: Partial<Account> & {
+    username: string;
+    display_name: string;
+    password_hash: string;
+    recovery_hash: string;
+  }
+): Promise<Account> {
+  const id = accountData.id || randomUUID();
+  const account_key =
+    accountData.account_key || randomUUID().replace(/-/g, "").slice(0, 48);
+
+  const newAccount: Account = {
+    id,
+    username: accountData.username.toLowerCase(),
+    display_name: accountData.display_name,
+    password_hash: accountData.password_hash,
+    recovery_hash: accountData.recovery_hash,
+    bio: accountData.bio || null,
+    avatar_url: accountData.avatar_url || null,
+    website: accountData.website || null,
+    has_creator: Boolean(accountData.has_creator),
+    has_studio: Boolean(accountData.has_studio),
+    active_mode: accountData.active_mode || null,
+    onboarding_step: accountData.onboarding_step ?? 1,
+    onboarding_done: Boolean(accountData.onboarding_done),
+    plan: accountData.plan || "free",
+    creator_specialties: accountData.creator_specialties || [],
+    studio_name: accountData.studio_name || null,
+    studio_type: accountData.studio_type || null,
+    studio_focus: accountData.studio_focus || [],
+    studio_pledge_accepted: Boolean(accountData.studio_pledge_accepted),
+    verification_status: accountData.verification_status || "none",
+    verification_link: accountData.verification_link || null,
+    verification_doc_path: accountData.verification_doc_path || null,
+    account_key,
+    created_at: new Date().toISOString(),
+    last_seen_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("accounts")
+        .insert(newAccount)
+        .select()
+        .single();
+      if (!error && data) return data as Account;
+    } catch (e) {
+      console.warn("Supabase createAccount error:", e);
+    }
+  }
+
+  global.__vnAccounts?.push(newAccount);
+  return newAccount;
+}
+
+export async function updateAccount(
+  id: string,
+  updates: Partial<Account>
+): Promise<Account | null> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("accounts")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (!error && data) return data as Account;
+    } catch (e) {
+      console.warn("Supabase updateAccount error:", e);
+    }
+  }
+
+  const idx = global.__vnAccounts?.findIndex((a) => a.id === id);
+  if (idx !== undefined && idx !== -1 && global.__vnAccounts) {
+    global.__vnAccounts[idx] = { ...global.__vnAccounts[idx], ...updates };
+    return global.__vnAccounts[idx];
+  }
+  return null;
+}
+
+export async function checkAccountDeletionEligibility(id: string): Promise<{
+  eligible: boolean;
+  reason?: string;
+  availableDate?: string;
+}> {
+  const now = new Date();
+  const allRentals = await getRentalsList();
+
+  // 1. Studio side: active rentals
+  const activeStudioRentals = allRentals.filter(
+    (r) =>
+      r.studio_id === id &&
+      r.expires_at &&
+      new Date(r.expires_at).getTime() > now.getTime() &&
+      !r.ended_early
+  );
+  if (activeStudioRentals.length > 0) {
+    const latestExpiry = activeStudioRentals
+      .map((r) => new Date(r.expires_at!).getTime())
+      .sort((a, b) => b - a)[0];
+    return {
+      eligible: false,
+      reason: `You have ${activeStudioRentals.length} active character rental(s).`,
+      availableDate: new Date(latestExpiry).toLocaleDateString(),
+    };
+  }
+
+  // 2. Creator side: characters with active rentals or in grace period
+  const userCharacters = (await getCharacters({ owner_id: id })).map(
+    (c) => c.id
+  );
+  const activeCharRentals = allRentals.filter(
+    (r) =>
+      userCharacters.includes(r.character_id) &&
+      r.grace_ends_at &&
+      new Date(r.grace_ends_at).getTime() > now.getTime() &&
+      !r.ended_early
+  );
+  if (activeCharRentals.length > 0) {
+    const latestGrace = activeCharRentals
+      .map((r) => new Date(r.grace_ends_at!).getTime())
+      .sort((a, b) => b - a)[0];
+    return {
+      eligible: false,
+      reason: `Studios are actively renting your characters or are in the grace period.`,
+      availableDate: new Date(latestGrace).toLocaleDateString(),
+    };
+  }
+
+  return { eligible: true };
+}
+
+export async function deleteAccount(id: string): Promise<boolean> {
+  const eligibility = await checkAccountDeletionEligibility(id);
+  if (!eligibility.eligible) {
+    throw new Error(eligibility.reason || "Account cannot be deleted yet.");
+  }
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabaseServer.from("accounts").delete().eq("id", id);
+    } catch (e) {
+      console.warn("Supabase deleteAccount error:", e);
+    }
+  }
+
+  if (global.__vnAccounts) {
+    global.__vnAccounts = global.__vnAccounts.filter((a) => a.id !== id);
+  }
+  return true;
+}
+
+export async function logLoginAttempt(
+  username: string,
+  ip: string,
+  ok: boolean
+): Promise<void> {
+  if (isSupabaseConfigured) {
+    try {
+      await supabaseServer
+        .from("login_attempts")
+        .insert({ username: username.toLowerCase(), ip, ok });
+      return;
+    } catch (e) {
+      console.warn("Supabase logLoginAttempt error:", e);
+    }
+  }
+
+  global.__vnLoginAttempts?.push({
+    id: Date.now(),
+    username: username.toLowerCase(),
+    ip,
+    ok,
+    created_at: new Date().toISOString(),
+  });
+}
+
+export async function checkLoginAttempts(
+  username: string,
+  ip: string
+): Promise<{ allowed: boolean; remainingAttempts: number; waitMinutes?: number }> {
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  let failedAttempts = 0;
+
+  if (isSupabaseConfigured) {
+    try {
+      const { count } = await supabaseServer
+        .from("login_attempts")
+        .select("*", { count: "exact", head: true })
+        .eq("username", username.toLowerCase())
+        .eq("ip", ip)
+        .eq("ok", false)
+        .gte("created_at", tenMinutesAgo);
+      failedAttempts = count || 0;
+    } catch (e) {
+      console.warn("Supabase checkLoginAttempts error:", e);
+    }
+  } else {
+    failedAttempts = (global.__vnLoginAttempts || []).filter(
+      (a) =>
+        a.username === username.toLowerCase() &&
+        a.ip === ip &&
+        !a.ok &&
+        a.created_at >= tenMinutesAgo
+    ).length;
+  }
+
+  const maxAttempts = 5;
+  if (failedAttempts >= maxAttempts) {
+    return {
+      allowed: false,
+      remainingAttempts: 0,
+      waitMinutes: 10,
+    };
+  }
+
+  return {
+    allowed: true,
+    remainingAttempts: maxAttempts - failedAttempts,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHARACTERS
+// ═══════════════════════════════════════════════════════════
+
+export async function getCharacters(options?: {
+  status?: string;
+  owner_id?: string;
+  buyer_id?: string;
   genre?: string;
   search?: string;
-  type?: string;
+  tier?: string;
+  allowed_uses?: string;
+  price_filter?: string; // 'free' | 'rent' | 'sale'
+  is_featured?: boolean;
+  is_demo?: boolean;
   sort?: string;
+  limit?: number;
+  offset?: number;
 }): Promise<Character[]> {
-  if (isSupabaseServerConfigured()) {
+  if (isSupabaseConfigured) {
     try {
       let query = supabaseServer
         .from("characters")
-        .select("*, owner:profiles(*)")
-        .neq("status", "deleted");
+        .select("*, owner:accounts(id, username, display_name, avatar_url, verification_status)");
 
-      if (filter?.search) {
-        query = query.ilike("name", `%${filter.search}%`);
+      if (options?.status) {
+        query = query.eq("status", options.status);
+      } else {
+        query = query.neq("status", "deleted");
       }
-      if (filter?.genre && filter.genre !== "All") {
-        query = query.contains("genres", [filter.genre]);
+
+      if (options?.owner_id) query = query.eq("owner_id", options.owner_id);
+      if (options?.buyer_id) query = query.eq("buyer_id", options.buyer_id);
+      if (options?.is_featured) query = query.eq("is_featured", true);
+      if (options?.is_demo) query = query.eq("is_demo", true);
+      if (options?.tier) query = query.eq("fame_tier", options.tier);
+
+      if (options?.search) {
+        query = query.or(
+          `name.ilike.%${options.search}%,vibe_summary.ilike.%${options.search}%,description.ilike.%${options.search}%`
+        );
       }
-      if (filter?.type === "free") {
+      if (options?.genre && options.genre !== "All") {
+        query = query.contains("genres", [options.genre]);
+      }
+      if (options?.price_filter === "free") {
         query = query.eq("is_free", true);
-      } else if (filter?.type === "rent") {
-        query = query.gt("rental_price_daily", 0);
-      } else if (filter?.type === "purchase") {
-        query = query.not("purchase_price", "is", null);
+      } else if (options?.price_filter === "rent") {
+        query = query.gt("price_daily_cents", 0);
+      } else if (options?.price_filter === "sale") {
+        query = query.eq("sale_enabled", true);
       }
 
-      if (filter?.sort === "fame") {
+      if (options?.sort === "fame") {
         query = query.order("fame_score", { ascending: false });
-      } else if (filter?.sort === "price_asc") {
-        query = query.order("rental_price_daily", { ascending: true });
-      } else if (filter?.sort === "price_desc") {
-        query = query.order("rental_price_daily", { ascending: false });
+      } else if (options?.sort === "rating") {
+        query = query.order("rating_avg", { ascending: false });
+      } else if (options?.sort === "price_asc") {
+        query = query.order("price_daily_cents", { ascending: true });
+      } else if (options?.sort === "price_desc") {
+        query = query.order("price_daily_cents", { ascending: false });
+      } else if (options?.sort === "rentals") {
+        query = query.order("rental_count", { ascending: false });
       } else {
         query = query.order("created_at", { ascending: false });
       }
 
+      if (options?.limit) query = query.limit(options.limit);
+      if (options?.offset) query = query.range(options.offset, options.offset + (options.limit || 20) - 1);
+
       const { data, error } = await query;
-      if (!error && data && data.length > 0) {
-        return data as Character[];
-      }
+      if (!error && data) return data as Character[];
     } catch (e) {
-      console.warn("Supabase characters fetch fallback:", e);
+      console.warn("Supabase getCharacters error:", e);
     }
   }
 
-  // Local fallback
-  let list = [...(global.__vynterCharacters || [])].filter(
-    (c) => c.status !== "deleted"
-  );
+  let list = [...(global.__vnCharacters || [])];
 
-  if (filter?.search) {
-    const s = filter.search.toLowerCase();
+  if (options?.status) {
+    list = list.filter((c) => c.status === options.status);
+  } else {
+    list = list.filter((c) => c.status !== "deleted");
+  }
+
+  if (options?.owner_id) list = list.filter((c) => c.owner_id === options.owner_id);
+  if (options?.buyer_id) list = list.filter((c) => c.buyer_id === options.buyer_id);
+  if (options?.is_featured) list = list.filter((c) => c.is_featured);
+  if (options?.is_demo) list = list.filter((c) => c.is_demo);
+  if (options?.tier) list = list.filter((c) => c.fame_tier === options.tier);
+
+  if (options?.search) {
+    const s = options.search.toLowerCase();
     list = list.filter(
       (c) =>
         c.name.toLowerCase().includes(s) ||
-        c.vibe_summary.toLowerCase().includes(s) ||
-        c.description.toLowerCase().includes(s)
+        (c.vibe_summary && c.vibe_summary.toLowerCase().includes(s)) ||
+        (c.description && c.description.toLowerCase().includes(s)) ||
+        c.id.toLowerCase().includes(s)
     );
   }
 
-  if (filter?.genre && filter.genre !== "All") {
+  if (options?.genre && options.genre !== "All") {
     list = list.filter((c) =>
-      c.genres.some((g) => g.toLowerCase() === filter.genre?.toLowerCase())
+      c.genres.some((g) => g.toLowerCase() === options.genre?.toLowerCase())
     );
   }
 
-  if (filter?.type === "free") {
+  if (options?.price_filter === "free") {
     list = list.filter((c) => c.is_free);
-  } else if (filter?.type === "rent") {
-    list = list.filter((c) => !c.is_free && c.rental_price_daily > 0);
-  } else if (filter?.type === "purchase") {
-    list = list.filter((c) => c.purchase_price !== null && c.purchase_price > 0);
+  } else if (options?.price_filter === "rent") {
+    list = list.filter((c) => !c.is_free && c.price_daily_cents > 0);
+  } else if (options?.price_filter === "sale") {
+    list = list.filter((c) => c.sale_enabled);
   }
 
-  if (filter?.sort === "fame") {
+  if (options?.sort === "fame") {
     list.sort((a, b) => b.fame_score - a.fame_score);
-  } else if (filter?.sort === "price_asc") {
-    list.sort((a, b) => a.rental_price_daily - b.rental_price_daily);
-  } else if (filter?.sort === "price_desc") {
-    list.sort((a, b) => b.rental_price_daily - a.rental_price_daily);
+  } else if (options?.sort === "rating") {
+    list.sort((a, b) => b.rating_avg - a.rating_avg);
+  } else if (options?.sort === "price_asc") {
+    list.sort((a, b) => a.price_daily_cents - b.price_daily_cents);
+  } else if (options?.sort === "price_desc") {
+    list.sort((a, b) => b.price_daily_cents - a.price_daily_cents);
+  } else if (options?.sort === "rentals") {
+    list.sort((a, b) => b.rental_count - a.rental_count);
   } else {
-    list.sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  return list;
+  // Attach owner partial
+  return list.map((c) => {
+    const owner = global.__vnAccounts?.find((a) => a.id === c.owner_id);
+    return {
+      ...c,
+      owner: owner
+        ? {
+            id: owner.id,
+            username: owner.username,
+            display_name: owner.display_name,
+            avatar_url: owner.avatar_url,
+            verification_status: owner.verification_status,
+          }
+        : undefined,
+    };
+  });
 }
 
 export async function getCharacterById(id: string): Promise<Character | null> {
-  if (isSupabaseServerConfigured()) {
+  const norm = id.trim().toUpperCase();
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
         .from("characters")
-        .select("*, owner:profiles(*)")
-        .eq("id", id)
-        .single();
+        .select("*, owner:accounts(id, username, display_name, avatar_url, verification_status)")
+        .eq("id", norm)
+        .maybeSingle();
       if (!error && data) return data as Character;
     } catch (e) {
-      console.warn("Supabase getCharacterById fallback:", e);
+      console.warn("Supabase getCharacterById error:", e);
     }
   }
 
-  const found = global.__vynterCharacters?.find(
-    (c) => c.id.toLowerCase() === id.toLowerCase()
-  );
-  if (found) {
-    const owner = global.__vynterProfiles?.find((p) => p.id === found.owner_id);
-    return { ...found, owner };
-  }
-  return null;
+  const found = global.__vnCharacters?.find((c) => c.id.toUpperCase() === norm);
+  if (!found) return null;
+  const owner = global.__vnAccounts?.find((a) => a.id === found.owner_id);
+  return {
+    ...found,
+    owner: owner
+      ? {
+          id: owner.id,
+          username: owner.username,
+          display_name: owner.display_name,
+          avatar_url: owner.avatar_url,
+          verification_status: owner.verification_status,
+        }
+      : undefined,
+  };
 }
 
-export async function getCharacterByName(name: string): Promise<Character | null> {
-  const norm = name.trim().toLowerCase();
-  if (isSupabaseServerConfigured()) {
-    try {
-      const { data, error } = await supabaseServer
-        .from("characters")
-        .select("*, owner:profiles(*)")
-        .ilike("name", norm)
-        .neq("status", "deleted")
-        .limit(1);
-      if (!error && data && data.length > 0) return data[0] as Character;
-    } catch (e) {
-      console.warn("Supabase getCharacterByName fallback:", e);
+export async function getCharacterByNameOrId(
+  query: string,
+  accountId?: string
+): Promise<Character | null> {
+  const norm = query.trim().toLowerCase();
+  const all = await getCharacters();
+  // Check exact ID match first
+  let found = all.find((c) => c.id.toLowerCase() === norm);
+  if (!found) {
+    // Check exact name match
+    const matchingNames = all.filter((c) => c.name.toLowerCase() === norm);
+    if (matchingNames.length === 1) {
+      found = matchingNames[0];
+    } else if (matchingNames.length > 1) {
+      // Ambiguous name — return null so caller can ask for CVR ID
+      return null;
+    } else {
+      // Partial name match
+      found = all.find((c) => c.name.toLowerCase().includes(norm));
     }
   }
-
-  const found = global.__vynterCharacters?.find(
-    (c) =>
-      c.name.toLowerCase() === norm ||
-      c.id.toLowerCase() === norm ||
-      c.name.toLowerCase().includes(norm)
-  );
-  if (found) {
-    const owner = global.__vynterProfiles?.find((p) => p.id === found.owner_id);
-    return { ...found, owner };
-  }
-  return null;
+  return found || null;
 }
 
-export async function createCharacter(
-  characterData: Partial<Character>
+export async function createCharacterDraft(
+  ownerId: string,
+  initialData?: Partial<Character>
 ): Promise<Character> {
   const year = new Date().getFullYear();
   const randNum = Math.floor(10000 + Math.random() * 90000);
   const id = `CVR-${year}-${randNum}`;
 
-  const fullCharacter: Character = {
+  const character: Character = {
     id,
-    owner_id: characterData.owner_id || DEMO_CREATOR.id,
-    name: characterData.name || "Untitled Character",
-    status: "active",
-    avatar_url: characterData.avatar_url || null,
-    reference_images: characterData.reference_images || [],
-    vibe_summary: characterData.vibe_summary || "",
-    description: characterData.description || "",
-    full_character_sheet: characterData.full_character_sheet || "",
-    behavior_dangerous: characterData.behavior_dangerous || "",
-    behavior_funny: characterData.behavior_funny || "",
-    behavior_emotional: characterData.behavior_emotional || "",
-    behavior_social: characterData.behavior_social || "",
-    behavior_conflict: characterData.behavior_conflict || "",
-    physical_appearance: characterData.physical_appearance || "",
-    movement_style: characterData.movement_style || "",
-    signature_gesture: characterData.signature_gesture || null,
-    core_trait: characterData.core_trait || "",
-    secondary_trait: characterData.secondary_trait || null,
-    hidden_quality: characterData.hidden_quality || null,
-    greatest_fear: characterData.greatest_fear || null,
-    voice_description: characterData.voice_description || "",
-    speaking_style: characterData.speaking_style || "",
-    verbal_habits: characterData.verbal_habits || null,
-    voice_sample_url: characterData.voice_sample_url || null,
-    voice_analyzed_description: characterData.voice_analyzed_description || null,
-    genres: characterData.genres || ["Action"],
-    allowed_uses: characterData.allowed_uses || [
-      "film",
-      "advertising",
-      "social_content",
-      "gaming",
-    ],
-    rental_price_daily: Number(characterData.rental_price_daily) || 0,
-    rental_price_weekly: Number(characterData.rental_price_weekly) || 0,
-    rental_price_monthly: Number(characterData.rental_price_monthly) || 0,
-    purchase_price: characterData.purchase_price
-      ? Number(characterData.purchase_price)
-      : null,
-    is_free: Boolean(characterData.is_free),
-    fame_score: 50,
-    total_rentals: 0,
-    total_views: 0,
+    owner_id: ownerId,
+    name: initialData?.name || "Untitled Character",
+    status: "draft",
+    tagline: initialData?.tagline || null,
+    vibe_summary: initialData?.vibe_summary || "",
+    description: initialData?.description || "",
+    portrait_url: initialData?.portrait_url || null,
+    gallery_urls: initialData?.gallery_urls || [],
+    genres: initialData?.genres || ["Drama"],
+    personality_tags: initialData?.personality_tags || [],
+    allowed_uses: initialData?.allowed_uses || ["film", "advertising", "social", "game"],
+    full_sheet: initialData?.full_sheet || "",
+    sheet_word_count: 0,
+    specificity_score: null,
+    behavior_danger: initialData?.behavior_danger || null,
+    behavior_funny: initialData?.behavior_funny || null,
+    behavior_emotional: initialData?.behavior_emotional || null,
+    behavior_social: initialData?.behavior_social || null,
+    behavior_conflict: initialData?.behavior_conflict || null,
+    physical_appearance: initialData?.physical_appearance || null,
+    movement_style: initialData?.movement_style || null,
+    signature_gesture: initialData?.signature_gesture || null,
+    core_trait: initialData?.core_trait || null,
+    secondary_trait: initialData?.secondary_trait || null,
+    hidden_quality: initialData?.hidden_quality || null,
+    greatest_fear: initialData?.greatest_fear || null,
+    voice_pitch: initialData?.voice_pitch || null,
+    voice_tone: initialData?.voice_tone || null,
+    voice_pace: initialData?.voice_pace || null,
+    voice_accent: initialData?.voice_accent || null,
+    voice_baseline: initialData?.voice_baseline || null,
+    voice_description: initialData?.voice_description || null,
+    speaking_style: initialData?.speaking_style || null,
+    verbal_habits: initialData?.verbal_habits || null,
+    voice_sample_path: initialData?.voice_sample_path || null,
+    is_free: Boolean(initialData?.is_free),
+    trial_enabled: initialData?.trial_enabled ?? true,
+    price_daily_cents: initialData?.price_daily_cents || 0,
+    price_weekly_cents: initialData?.price_weekly_cents || 0,
+    price_monthly_cents: initialData?.price_monthly_cents || 0,
+    sale_enabled: Boolean(initialData?.sale_enabled),
+    sale_price_cents: initialData?.sale_price_cents || null,
+    accept_offers: Boolean(initialData?.accept_offers),
+    min_offer_cents: initialData?.min_offer_cents || null,
+    is_featured: false,
+    is_demo: false,
+    is_legend: false,
+    fame_score: 0,
+    fame_tier: "newcomer",
+    rating_avg: 0,
+    review_count: 0,
+    rental_count: 0,
+    unique_studios: 0,
+    reel_views: 0,
+    registration_hash: null,
+    published_at: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 
-  if (isSupabaseServerConfigured()) {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
         .from("characters")
-        .insert(fullCharacter)
+        .insert(character)
         .select()
         .single();
       if (!error && data) return data as Character;
     } catch (e) {
-      console.warn("Supabase createCharacter fallback:", e);
+      console.warn("Supabase createCharacterDraft error:", e);
     }
   }
 
-  if (!global.__vynterCharacters) global.__vynterCharacters = [];
-  global.__vynterCharacters.unshift(fullCharacter);
-  return fullCharacter;
+  global.__vnCharacters?.unshift(character);
+  return character;
 }
 
 export async function updateCharacter(
   id: string,
   updates: Partial<Character>
 ): Promise<Character | null> {
-  if (isSupabaseServerConfigured()) {
+  const norm = id.trim().toUpperCase();
+  const cleanUpdates = {
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.full_sheet !== undefined && updates.full_sheet !== null) {
+    cleanUpdates.sheet_word_count = updates.full_sheet.trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
         .from("characters")
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq("id", id)
+        .update(cleanUpdates)
+        .eq("id", norm)
         .select()
         .single();
       if (!error && data) return data as Character;
     } catch (e) {
-      console.warn("Supabase updateCharacter fallback:", e);
+      console.warn("Supabase updateCharacter error:", e);
     }
   }
 
-  const index = global.__vynterCharacters?.findIndex((c) => c.id === id);
-  if (index !== undefined && index !== -1 && global.__vynterCharacters) {
-    global.__vynterCharacters[index] = {
-      ...global.__vynterCharacters[index],
-      ...updates,
-      updated_at: new Date().toISOString(),
-    };
-    return global.__vynterCharacters[index];
+  const idx = global.__vnCharacters?.findIndex((c) => c.id.toUpperCase() === norm);
+  if (idx !== undefined && idx !== -1 && global.__vnCharacters) {
+    global.__vnCharacters[idx] = { ...global.__vnCharacters[idx], ...cleanUpdates };
+    return global.__vnCharacters[idx];
   }
   return null;
 }
 
-/* =========================================================================
-   PROFILES
-   ========================================================================= */
+export async function checkCharacterDeletionEligibility(id: string): Promise<{
+  eligible: boolean;
+  reason?: string;
+  availableDate?: string;
+}> {
+  const now = new Date();
+  const rentals = await getRentalsByCharacter(id);
+  const activeOrGrace = rentals.filter(
+    (r) =>
+      r.grace_ends_at &&
+      new Date(r.grace_ends_at).getTime() > now.getTime() &&
+      !r.ended_early
+  );
 
-export async function getProfileById(id: string): Promise<Profile | null> {
-  if (isSupabaseServerConfigured()) {
-    try {
-      const { data, error } = await supabaseServer
-        .from("profiles")
-        .select("*")
-        .eq("id", id)
-        .single();
-      if (!error && data) return data as Profile;
-    } catch (e) {
-      console.warn("Supabase getProfileById fallback:", e);
-    }
+  if (activeOrGrace.length > 0) {
+    const latestGrace = activeOrGrace
+      .map((r) => new Date(r.grace_ends_at!).getTime())
+      .sort((a, b) => b - a)[0];
+    return {
+      eligible: false,
+      reason: `Studios are currently renting this character or are in the 10-day grace period.`,
+      availableDate: new Date(latestGrace).toLocaleDateString(),
+    };
   }
 
-  return (
-    global.__vynterProfiles?.find((p) => p.id === id) ||
-    DEMO_STUDIO
-  );
+  return { eligible: true };
 }
 
-export async function getProfileByAccountKey(key: string): Promise<Profile | null> {
-  const norm = key.trim();
-  if (isSupabaseServerConfigured()) {
-    try {
-      const { data, error } = await supabaseServer
-        .from("profiles")
-        .select("*")
-        .eq("account_key", norm)
-        .single();
-      if (!error && data) return data as Profile;
-    } catch (e) {
-      console.warn("Supabase getProfileByAccountKey fallback:", e);
-    }
+export async function deleteCharacter(
+  id: string
+): Promise<{ success: boolean; reason?: string }> {
+  const check = await checkCharacterDeletionEligibility(id);
+  if (!check.eligible) {
+    return { success: false, reason: check.reason };
   }
 
-  return (
-    global.__vynterProfiles?.find((p) => p.account_key === norm) ||
-    (norm === "vn-test-key-001" ? DEMO_STUDIO : null)
-  );
+  await updateCharacter(id, { status: "deleted" });
+  return { success: true };
 }
 
-export async function createOrUpdateProfile(
-  profileData: Partial<Profile> & { id: string }
-): Promise<Profile> {
-  const fullProfile: Profile = {
-    id: profileData.id,
-    display_name: profileData.display_name || "Vynter User",
-    role: profileData.role || "studio",
-    bio: profileData.bio || null,
-    avatar_url: profileData.avatar_url || null,
-    account_key:
-      profileData.account_key ||
-      `vn-${randomUUID().replace(/-/g, "").slice(0, 32)}`,
-    verified: Boolean(profileData.verified),
-    total_earnings: Number(profileData.total_earnings) || 0,
+export async function getCharactersCount(): Promise<number> {
+  const active = (await getCharacters({ status: "active" })) || [];
+  return active.length;
+}
+
+// ═══════════════════════════════════════════════════════════
+// REEL SCENES
+// ═══════════════════════════════════════════════════════════
+
+export async function getReelScenes(characterId: string): Promise<ReelScene[]> {
+  const norm = characterId.trim().toUpperCase();
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("reel_scenes")
+        .select("*")
+        .eq("character_id", norm)
+        .order("position", { ascending: true });
+      if (!error && data) return data as ReelScene[];
+    } catch (e) {
+      console.warn("Supabase getReelScenes error:", e);
+    }
+  }
+  return (global.__vnReelScenes || [])
+    .filter((s) => s.character_id.toUpperCase() === norm)
+    .sort((a, b) => a.position - b.position);
+}
+
+export async function createReelScene(scene: Partial<ReelScene>): Promise<ReelScene> {
+  const newScene: ReelScene = {
+    id: scene.id || randomUUID(),
+    character_id: (scene.character_id || "").toUpperCase(),
+    category: scene.category || "danger",
+    title: scene.title || "Scene",
+    scene_text: scene.scene_text || null,
+    video_url: scene.video_url || null,
+    production_title: scene.production_title || null,
+    production_link: scene.production_link || null,
+    views: 0,
+    position: scene.position ?? 0,
     created_at: new Date().toISOString(),
   };
 
-  if (isSupabaseServerConfigured()) {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
-        .from("profiles")
-        .upsert(fullProfile)
+        .from("reel_scenes")
+        .insert(newScene)
         .select()
         .single();
-      if (!error && data) return data as Profile;
+      if (!error && data) return data as ReelScene;
     } catch (e) {
-      console.warn("Supabase upsert profile fallback:", e);
+      console.warn("Supabase createReelScene error:", e);
     }
   }
 
-  const existingIdx = global.__vynterProfiles?.findIndex(
-    (p) => p.id === profileData.id
-  );
-  if (existingIdx !== undefined && existingIdx !== -1 && global.__vynterProfiles) {
-    global.__vynterProfiles[existingIdx] = {
-      ...global.__vynterProfiles[existingIdx],
-      ...fullProfile,
-    };
-    return global.__vynterProfiles[existingIdx];
-  } else {
-    global.__vynterProfiles?.push(fullProfile);
-    return fullProfile;
-  }
+  global.__vnReelScenes?.push(newScene);
+  return newScene;
 }
 
-/* =========================================================================
-   RENTALS
-   ========================================================================= */
+// ═══════════════════════════════════════════════════════════
+// RENTALS & ACCESS CHECK
+// Section 11: getAccess(accountId, characterId) returns access or denial
+// ═══════════════════════════════════════════════════════════
 
-export async function getRentalsByStudioId(studioId: string): Promise<Rental[]> {
-  if (isSupabaseServerConfigured()) {
+export async function getRentalsList(): Promise<Rental[]> {
+  if (isSupabaseConfigured) {
     try {
-      const { data, error } = await supabaseServer
-        .from("rentals")
-        .select("*, character:characters(*)")
-        .eq("studio_id", studioId)
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabaseServer.from("rentals").select("*");
       if (!error && data) return data as Rental[];
     } catch (e) {
-      console.warn("Supabase getRentalsByStudioId fallback:", e);
+      console.warn("Supabase getRentalsList error:", e);
     }
   }
-
-  return (global.__vynterRentals || []).filter(
-    (r) => r.studio_id === studioId && r.status === "active"
-  );
+  return global.__vnRentals || [];
 }
 
-export async function getRentalByMcpToken(token: string): Promise<Rental | null> {
-  const norm = token.trim();
-  if (isSupabaseServerConfigured()) {
+export async function getRentalsByStudio(studioId: string): Promise<Rental[]> {
+  const all = await getRentalsList();
+  const filtered = all.filter((r) => r.studio_id === studioId);
+  const characters = await getCharacters();
+  return filtered.map((r) => ({
+    ...r,
+    character: characters.find((c) => c.id === r.character_id),
+  }));
+}
+
+export async function getRentalsByCharacter(
+  characterId: string
+): Promise<Rental[]> {
+  const norm = characterId.trim().toUpperCase();
+  const all = await getRentalsList();
+  return all.filter((r) => r.character_id.toUpperCase() === norm);
+}
+
+export async function getRentalById(id: string): Promise<Rental | null> {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
         .from("rentals")
         .select("*, character:characters(*)")
-        .eq("mcp_token", norm)
-        .single();
+        .eq("id", id)
+        .maybeSingle();
       if (!error && data) return data as Rental;
     } catch (e) {
-      console.warn("Supabase getRentalByMcpToken fallback:", e);
+      console.warn("Supabase getRentalById error:", e);
     }
   }
-
-  return (
-    global.__vynterRentals?.find(
-      (r) => r.mcp_token === norm && r.status === "active"
-    ) || null
-  );
+  const found = global.__vnRentals?.find((r) => r.id === id);
+  if (!found) return null;
+  const character = await getCharacterById(found.character_id);
+  return { ...found, character: character || undefined };
 }
 
-export async function createRental({
-  character_id,
-  studio_id,
-  rental_type,
-  price_paid = 0,
-  generation_credits = 100,
-}: {
-  character_id: string;
-  studio_id: string;
-  rental_type: "trial" | "daily" | "weekly" | "monthly" | "purchase" | "free";
-  price_paid?: number;
-  generation_credits?: number;
-}): Promise<Rental> {
-  const tokenHex = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "").slice(0, 16);
-  const mcp_token = `VN-${tokenHex}`;
+export async function createRental(rentalData: Partial<Rental>): Promise<Rental> {
+  const id = rentalData.id || randomUUID();
+  const pass_code =
+    rentalData.pass_code ||
+    `VN-${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
 
-  let expires_at: string | null = null;
-  const now = Date.now();
-  if (rental_type === "trial") {
-    expires_at = new Date(now + 86400000 * 3).toISOString();
-  } else if (rental_type === "daily") {
-    expires_at = new Date(now + 86400000).toISOString();
-  } else if (rental_type === "weekly") {
-    expires_at = new Date(now + 86400000 * 7).toISOString();
-  } else if (rental_type === "monthly") {
-    expires_at = new Date(now + 86400000 * 30).toISOString();
-  } else {
-    expires_at = null; // Permanent or Free without expiration
-  }
-
-  const char = await getCharacterById(character_id);
-
-  const newRental: Rental = {
-    id: randomUUID(),
-    character_id,
-    studio_id,
-    rental_type,
-    status: "active",
-    mcp_token,
-    generation_credits,
+  const rental: Rental = {
+    id,
+    character_id: (rentalData.character_id || "").toUpperCase(),
+    studio_id: rentalData.studio_id || "",
+    kind: rentalData.kind || "rental",
+    period: rentalData.period || "1d",
+    pass_code,
+    starts_at: rentalData.starts_at || new Date().toISOString(),
+    expires_at: rentalData.expires_at || null,
+    grace_ends_at: rentalData.grace_ends_at || null,
+    credits_total: rentalData.credits_total || 50,
     credits_used: 0,
-    price_paid,
-    starts_at: new Date().toISOString(),
-    expires_at,
+    settings: rentalData.settings || {
+      humor: true,
+      physical: true,
+      dialogue: true,
+      mode: "full",
+    },
+    price_cents: rentalData.price_cents || 0,
+    ended_early: false,
     created_at: new Date().toISOString(),
-    character: char || undefined,
   };
 
-  if (isSupabaseServerConfigured()) {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
         .from("rentals")
-        .insert(newRental)
-        .select("*, character:characters(*)")
+        .insert(rental)
+        .select()
         .single();
       if (!error && data) return data as Rental;
     } catch (e) {
-      console.warn("Supabase createRental fallback:", e);
+      console.warn("Supabase createRental error:", e);
     }
   }
 
-  global.__vynterRentals?.unshift(newRental);
-  return newRental;
+  global.__vnRentals?.unshift(rental);
+  return rental;
+}
+
+export async function updateRental(
+  id: string,
+  updates: Partial<Rental>
+): Promise<Rental | null> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("rentals")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (!error && data) return data as Rental;
+    } catch (e) {
+      console.warn("Supabase updateRental error:", e);
+    }
+  }
+
+  const idx = global.__vnRentals?.findIndex((r) => r.id === id);
+  if (idx !== undefined && idx !== -1 && global.__vnRentals) {
+    global.__vnRentals[idx] = { ...global.__vnRentals[idx], ...updates };
+    return global.__vnRentals[idx];
+  }
+  return null;
+}
+
+export async function endRentalEarly(id: string): Promise<Rental | null> {
+  return updateRental(id, {
+    expires_at: new Date().toISOString(),
+    ended_early: true,
+  });
+}
+
+export async function getAccess(
+  accountId: string | null,
+  characterId: string,
+  ip?: string
+): Promise<
+  | {
+      access: "owner_test" | "demo" | "trial" | "rental" | "free" | "purchased";
+      rental?: Rental;
+      character: Character;
+    }
+  | {
+      denied: true;
+      reason:
+        | "expired"
+        | "grace"
+        | "no_credits"
+        | "suspended"
+        | "not_rented"
+        | "rate_limited";
+      message: string;
+    }
+> {
+  const character = await getCharacterById(characterId);
+  if (!character) {
+    return {
+      denied: true,
+      reason: "not_rented",
+      message: "Character was not found.",
+    };
+  }
+
+  if (character.status === "suspended") {
+    return {
+      denied: true,
+      reason: "suspended",
+      message: `${character.name} is currently suspended by administration.`,
+    };
+  }
+
+  // 1. Owner test access
+  if (accountId && character.owner_id === accountId) {
+    return { access: "owner_test", character };
+  }
+
+  // 2. Purchased access (exclusive owner)
+  if (accountId && character.buyer_id === accountId) {
+    return { access: "purchased", character };
+  }
+
+  // 3. Demo access for is_demo characters
+  if (character.is_demo) {
+    return { access: "demo", character };
+  }
+
+  if (!accountId) {
+    return {
+      denied: true,
+      reason: "not_rented",
+      message: "Sign in to access this character.",
+    };
+  }
+
+  // 4. Check rentals for this studio and character
+  const rentals = await getRentalsByStudio(accountId);
+  const activeRental = rentals.find(
+    (r) => r.character_id.toUpperCase() === character.id.toUpperCase()
+  );
+
+  if (!activeRental) {
+    return {
+      denied: true,
+      reason: "not_rented",
+      message: `You do not have an active rental for ${character.name}. Rent or start a trial in the marketplace.`,
+    };
+  }
+
+  const now = new Date().getTime();
+  const expiresAt = activeRental.expires_at
+    ? new Date(activeRental.expires_at).getTime()
+    : null;
+  const graceEndsAt = activeRental.grace_ends_at
+    ? new Date(activeRental.grace_ends_at).getTime()
+    : null;
+
+  // Check credits
+  if (
+    activeRental.kind !== "purchase" &&
+    activeRental.credits_used >= activeRental.credits_total
+  ) {
+    return {
+      denied: true,
+      reason: "no_credits",
+      message: `${character.name}'s generation credits are exhausted. Top up credits in Studio Library.`,
+    };
+  }
+
+  // Check expiry & grace
+  if (expiresAt && now > expiresAt) {
+    if (graceEndsAt && now < graceEndsAt) {
+      return {
+        denied: true,
+        reason: "grace",
+        message: `${character.name}'s rental ended and is currently in the 10-day grace period. Renew in Library to reactivate.`,
+      };
+    }
+    return {
+      denied: true,
+      reason: "expired",
+      message: `${character.name}'s rental expired. Renew in Library.`,
+    };
+  }
+
+  return {
+    access:
+      activeRental.kind === "trial"
+        ? "trial"
+        : activeRental.kind === "free"
+        ? "free"
+        : activeRental.kind === "purchase"
+        ? "purchased"
+        : "rental",
+    rental: activeRental,
+    character,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+// GENERATIONS (Keep, Discard, Retry)
+// ═══════════════════════════════════════════════════════════
+
+export async function createGeneration(gen: Partial<Generation>): Promise<Generation> {
+  const newGen: Generation = {
+    id: gen.id || randomUUID(),
+    rental_id: gen.rental_id || null,
+    character_id: (gen.character_id || "").toUpperCase(),
+    account_id: gen.account_id || null,
+    scene_group: gen.scene_group || randomUUID(),
+    source: gen.source || "web",
+    scene_text: gen.scene_text || "",
+    enriched_prompt: gen.enriched_prompt || "",
+    breakdown: gen.breakdown || null,
+    analysis: gen.analysis || null,
+    status: gen.status || "preview",
+    charged: Boolean(gen.charged),
+    created_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("generations")
+        .insert(newGen)
+        .select()
+        .single();
+      if (!error && data) return data as Generation;
+    } catch (e) {
+      console.warn("Supabase createGeneration error:", e);
+    }
+  }
+
+  global.__vnGenerations?.unshift(newGen);
+  return newGen;
+}
+
+export async function getGenerationById(id: string): Promise<Generation | null> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("generations")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+      if (!error && data) return data as Generation;
+    } catch (e) {
+      console.warn("Supabase getGenerationById error:", e);
+    }
+  }
+  return global.__vnGenerations?.find((g) => g.id === id) || null;
+}
+
+export async function updateGeneration(
+  id: string,
+  updates: Partial<Generation>
+): Promise<Generation | null> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("generations")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (!error && data) return data as Generation;
+    } catch (e) {
+      console.warn("Supabase updateGeneration error:", e);
+    }
+  }
+
+  const idx = global.__vnGenerations?.findIndex((g) => g.id === id);
+  if (idx !== undefined && idx !== -1 && global.__vnGenerations) {
+    global.__vnGenerations[idx] = { ...global.__vnGenerations[idx], ...updates };
+    return global.__vnGenerations[idx];
+  }
+  return null;
+}
+
+export async function countSceneGroupGenerations(sceneGroup: string): Promise<number> {
+  if (isSupabaseConfigured) {
+    try {
+      const { count } = await supabaseServer
+        .from("generations")
+        .select("*", { count: "exact", head: true })
+        .eq("scene_group", sceneGroup);
+      return count || 0;
+    } catch (e) {
+      console.warn("Supabase countSceneGroupGenerations error:", e);
+    }
+  }
+  return (
+    global.__vnGenerations?.filter((g) => g.scene_group === sceneGroup).length || 0
+  );
+}
+
+export async function getEnrichedScenesCount(): Promise<number> {
+  if (isSupabaseConfigured) {
+    try {
+      const { count } = await supabaseServer
+        .from("generations")
+        .select("*", { count: "exact", head: true });
+      return count || 0;
+    } catch (e) {
+      console.warn("Supabase getEnrichedScenesCount error:", e);
+    }
+  }
+  return global.__vnGenerations?.length || 0;
+}
+
+export async function getGenerationsBySceneGroup(
+  sceneGroup: string
+): Promise<Generation[]> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("generations")
+        .select("*")
+        .eq("scene_group", sceneGroup)
+        .order("created_at", { ascending: true });
+      if (!error && data) return data as Generation[];
+    } catch (e) {
+      console.warn("Supabase getGenerationsBySceneGroup error:", e);
+    }
+  }
+  return (global.__vnGenerations || []).filter((g) => g.scene_group === sceneGroup);
 }
 
 export async function incrementRentalCreditsUsed(
   rentalId: string,
   amount = 1
 ): Promise<void> {
-  if (isSupabaseServerConfigured()) {
-    try {
-      await supabaseServer.rpc("increment_credits", {
-        r_id: rentalId,
-        amt: amount,
-      });
-    } catch (e) {
-      console.warn("Supabase increment rental credits fallback:", e);
-    }
-  }
-
-  const r = global.__vynterRentals?.find((item) => item.id === rentalId);
-  if (r) {
-    r.credits_used += amount;
-  }
+  const rental = await getRentalById(rentalId);
+  if (!rental) return;
+  const newUsed = rental.credits_used + amount;
+  await updateRental(rentalId, { credits_used: newUsed });
 }
 
-export async function getRentalById(id: string): Promise<Rental | null> {
-  if (isSupabaseServerConfigured()) {
+export async function getGenerationsList(limit = 100): Promise<Generation[]> {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
-        .from("rentals")
-        .select("*, character:characters(*)")
-        .eq("id", id)
-        .single();
-      if (!error && data) return data as Rental;
+        .from("generations")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (!error && data) return data as Generation[];
     } catch (e) {
-      console.warn("Supabase getRentalById fallback:", e);
+      console.warn("Supabase getGenerationsList error:", e);
     }
   }
-
-  return global.__vynterRentals?.find((r) => r.id === id) || null;
+  return (global.__vnGenerations || []).slice(0, limit);
 }
 
-export async function updateRentalStatus(
-  id: string,
-  status: "active" | "expired" | "cancelled"
-): Promise<Rental | null> {
-  if (isSupabaseServerConfigured()) {
-    try {
-      const { data, error } = await supabaseServer
-        .from("rentals")
-        .update({ status })
-        .eq("id", id)
-        .select("*, character:characters(*)")
-        .single();
-      if (!error && data) return data as Rental;
-    } catch (e) {
-      console.warn("Supabase updateRentalStatus fallback:", e);
-    }
-  }
+// ═══════════════════════════════════════════════════════════
+// REVIEWS
+// ═══════════════════════════════════════════════════════════
 
-  const rental = global.__vynterRentals?.find((r) => r.id === id);
-  if (rental) {
-    rental.status = status;
-    return rental;
-  }
-  return null;
-}
-
-/* =========================================================================
-   SKILL TEMPLATES
-   ========================================================================= */
-
-export async function getAllSkillTemplates(
-  category?: string
-): Promise<SkillTemplate[]> {
-  if (isSupabaseServerConfigured()) {
+export async function getReviews(
+  characterId?: string,
+  studioId?: string
+): Promise<Review[]> {
+  if (isSupabaseConfigured) {
     try {
       let query = supabaseServer
-        .from("skill_templates")
-        .select("*, creator:profiles(*)")
-        .order("created_at", { ascending: false });
-
-      if (category && category !== "All") {
-        query = query.eq("category", category);
-      }
-      const { data, error } = await query;
-      if (!error && data) return data as SkillTemplate[];
-    } catch (e) {
-      console.warn("Supabase skill_templates fallback:", e);
-    }
-  }
-
-  let list = [...(global.__vynterSkillTemplates || [])];
-  if (category && category !== "All") {
-    list = list.filter((t) => t.category === category);
-  }
-  return list;
-}
-
-export async function createSkillTemplate(
-  template: Partial<SkillTemplate>
-): Promise<SkillTemplate> {
-  const newTemplate: SkillTemplate = {
-    id: randomUUID(),
-    creator_id: template.creator_id || DEMO_CREATOR.id,
-    title: template.title || "Untitled Skill Template",
-    description: template.description || "",
-    category: template.category || "personality",
-    content: template.content || "",
-    price: Number(template.price) || 0,
-    is_free: Boolean(template.is_free),
-    purchases: 0,
-    created_at: new Date().toISOString(),
-    creator: DEMO_CREATOR,
-  };
-
-  if (isSupabaseServerConfigured()) {
-    try {
-      const { data, error } = await supabaseServer
-        .from("skill_templates")
-        .insert(newTemplate)
-        .select("*, creator:profiles(*)")
-        .single();
-      if (!error && data) return data as SkillTemplate;
-    } catch (e) {
-      console.warn("Supabase createSkillTemplate fallback:", e);
-    }
-  }
-
-  global.__vynterSkillTemplates?.unshift(newTemplate);
-  return newTemplate;
-}
-
-/* =========================================================================
-   REVIEWS & LOGS
-   ========================================================================= */
-
-export async function getReviewsByCharacterId(
-  characterId: string
-): Promise<Review[]> {
-  if (isSupabaseServerConfigured()) {
-    try {
-      const { data, error } = await supabaseServer
         .from("reviews")
-        .select("*, reviewer:profiles(*)")
-        .eq("character_id", characterId)
-        .order("created_at", { ascending: false });
+        .select("*, studio:accounts(id, username, display_name, avatar_url, verification_status)")
+        .eq("hidden", false);
+      if (characterId) query = query.eq("character_id", characterId.toUpperCase());
+      if (studioId) query = query.eq("studio_id", studioId);
+      const { data, error } = await query.order("created_at", { ascending: false });
       if (!error && data) return data as Review[];
     } catch (e) {
-      console.warn("Supabase getReviews fallback:", e);
+      console.warn("Supabase getReviews error:", e);
     }
   }
 
-  return (global.__vynterReviews || []).filter(
-    (r) => r.character_id.toLowerCase() === characterId.toLowerCase()
-  );
+  let list = (global.__vnReviews || []).filter((r) => !r.hidden);
+  if (characterId) list = list.filter((r) => r.character_id.toUpperCase() === characterId.toUpperCase());
+  if (studioId) list = list.filter((r) => r.studio_id === studioId);
+  return list.map((r) => {
+    const studio = global.__vnAccounts?.find((a) => a.id === r.studio_id);
+    return {
+      ...r,
+      studio: studio
+        ? {
+            id: studio.id,
+            username: studio.username,
+            display_name: studio.display_name,
+            avatar_url: studio.avatar_url,
+            verification_status: studio.verification_status,
+          }
+        : undefined,
+    };
+  });
 }
 
-export async function createReview(review: Partial<Review>): Promise<Review> {
+export async function createReview(rev: Partial<Review>): Promise<Review> {
   const newRev: Review = {
-    id: randomUUID(),
-    character_id: review.character_id!,
-    reviewer_id: review.reviewer_id || DEMO_STUDIO.id,
-    rental_id: review.rental_id || null,
-    rating: review.rating || 5,
-    review_text: review.review_text || "",
+    id: rev.id || randomUUID(),
+    rental_id: rev.rental_id || "",
+    character_id: (rev.character_id || "").toUpperCase(),
+    studio_id: rev.studio_id || "",
+    rating_consistency: rev.rating_consistency || 5,
+    rating_depth: rev.rating_depth || 5,
+    rating_value: rev.rating_value || 5,
+    rating_overall: rev.rating_overall || 5,
+    body: rev.body || "",
+    production_type: rev.production_type || null,
+    would_rent_again: rev.would_rent_again || "yes",
+    creator_reply: null,
+    creator_reply_at: null,
+    helpful_count: 0,
+    hidden: false,
     created_at: new Date().toISOString(),
-    reviewer: DEMO_STUDIO,
   };
 
-  if (isSupabaseServerConfigured()) {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
         .from("reviews")
         .insert(newRev)
-        .select("*, reviewer:profiles(*)")
+        .select()
         .single();
-      if (!error && data) return data as Review;
+      if (!error && data) {
+        await recalculateCharacterFame(newRev.character_id);
+        return data as Review;
+      }
     } catch (e) {
-      console.warn("Supabase createReview fallback:", e);
+      console.warn("Supabase createReview error:", e);
     }
   }
 
-  global.__vynterReviews?.unshift(newRev);
+  global.__vnReviews?.unshift(newRev);
+  await recalculateCharacterFame(newRev.character_id);
   return newRev;
 }
 
-export async function logGeneration(log: Partial<GenerationLog>): Promise<void> {
-  const newLog: GenerationLog = {
-    id: randomUUID(),
-    rental_id: log.rental_id || null,
-    character_id: log.character_id!,
-    original_prompt: log.original_prompt || "",
-    enriched_prompt: log.enriched_prompt || "",
-    original_word_count: log.original_word_count || 0,
-    enriched_word_count: log.enriched_word_count || 0,
-    status: log.status || "kept",
-    created_at: new Date().toISOString(),
-  };
-
-  if (isSupabaseServerConfigured()) {
+export async function voteReviewHelpful(
+  reviewId: string,
+  accountId: string
+): Promise<boolean> {
+  if (isSupabaseConfigured) {
     try {
-      await supabaseServer.from("generation_logs").insert(newLog);
+      const { error } = await supabaseServer
+        .from("review_votes")
+        .insert({ review_id: reviewId, account_id: accountId });
+      if (!error) {
+        await supabaseServer.rpc("increment_review_helpful", { r_id: reviewId });
+        return true;
+      }
     } catch (e) {
-      console.warn("Supabase logGeneration fallback:", e);
+      console.warn("Supabase voteReviewHelpful error:", e);
     }
   }
 
-  if (!global.__vynterGenerationLogs) global.__vynterGenerationLogs = [];
-  global.__vynterGenerationLogs.unshift(newLog);
-}
-
-export async function checkCharacterNameAvailable(name: string): Promise<boolean> {
-  const norm = name.trim().toLowerCase();
-  const existing = await getCharacterByName(norm);
+  const existing = (global.__vnReviewVotes || []).find(
+    (v) => v.review_id === reviewId && v.account_id === accountId
+  );
   if (existing) return false;
-  const chars = await getAllCharacters();
-  return !chars.some((c) => c.name.toLowerCase() === norm);
+
+  global.__vnReviewVotes?.push({ review_id: reviewId, account_id: accountId });
+  const review = global.__vnReviews?.find((r) => r.id === reviewId);
+  if (review) review.helpful_count += 1;
+  return true;
 }
 
-export async function createCharacterWithSkills({
-  character,
-  skills,
-}: {
-  character: Partial<Character>;
-  skills?: any;
-}): Promise<Character> {
-  const mergedCharacterData: Partial<Character> = {
-    ...character,
-    vibe_summary: skills?.vibe_summary || character.vibe_summary || "Dynamic AI Persona",
-    description: character.description || skills?.core_trait || "",
-    full_character_sheet:
-      character.full_character_sheet ||
-      `Character: ${character.name}\nCore Trait: ${skills?.core_trait || ""}\nMovement: ${skills?.movement_style || ""}\nDanger: ${skills?.handles_danger || ""}\nHumor: ${skills?.humor_style || ""}`,
-    behavior_dangerous: skills?.handles_danger || character.behavior_dangerous || "Remains calm and analytical.",
-    behavior_funny: skills?.what_makes_laugh || character.behavior_funny || "Appreciates clever wit.",
-    behavior_emotional: character.behavior_emotional || "Expressive and empathetic.",
-    behavior_social: character.behavior_social || "Approachable and charismatic.",
-    behavior_conflict: skills?.what_makes_angry || character.behavior_conflict || "Direct and measured.",
-    physical_appearance: character.physical_appearance || "Distinctive screen presence.",
-    movement_style: skills?.movement_style || character.movement_style || "Fluid and grounded.",
-    signature_gesture: skills?.signature_gesture || character.signature_gesture || null,
-    core_trait: skills?.core_trait || character.core_trait || "Resilient and perceptive.",
-    secondary_trait: skills?.secondary_trait || character.secondary_trait || null,
-    hidden_quality: skills?.hidden_quality || character.hidden_quality || null,
-    speaking_style: skills?.speaking_pace || character.speaking_style || "Clear and paced.",
-    verbal_habits: skills?.catchphrase || character.verbal_habits || null,
-  };
-
-  const created = await createCharacter(mergedCharacterData);
-  created.skills = skills || {
-    resting_expression: skills?.resting_expression || null,
-    movement_style: created.movement_style,
-    signature_gesture: created.signature_gesture,
-    stress_reaction: skills?.stress_reaction || null,
-    core_trait: created.core_trait,
-    secondary_trait: created.secondary_trait,
-    handles_danger: created.behavior_dangerous,
-    what_makes_laugh: created.behavior_funny,
-    what_makes_angry: created.behavior_conflict,
-    hidden_quality: created.hidden_quality,
-    speaking_pace: created.speaking_style,
-    language_mixing: skills?.language_mixing || null,
-    humor_style: skills?.humor_style || null,
-    catchphrase: created.verbal_habits,
-    vibe_summary: created.vibe_summary,
-  };
-
-  return created;
-}
-
-export async function createGenerationLog(
-  log: Partial<GenerationLog>
-): Promise<GenerationLog> {
-  const origWords = log.original_prompt ? log.original_prompt.trim().split(/\s+/).length : 0;
-  const enrichWords = log.enriched_prompt ? log.enriched_prompt.trim().split(/\s+/).length : 0;
-
-  const newLog: GenerationLog = {
-    id: log.id || randomUUID(),
-    rental_id: log.rental_id || null,
-    character_id: log.character_id!,
-    original_prompt: log.original_prompt || "",
-    enriched_prompt: log.enriched_prompt || "",
-    original_word_count: log.original_word_count || origWords,
-    enriched_word_count: log.enriched_word_count || enrichWords,
-    status: log.status || "kept",
-    created_at: new Date().toISOString(),
-  };
-
-  if (isSupabaseServerConfigured()) {
+export async function replyReview(
+  reviewId: string,
+  reply: string
+): Promise<Review | null> {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabaseServer
-        .from("generation_logs")
-        .insert(newLog)
+        .from("reviews")
+        .update({ creator_reply: reply, creator_reply_at: new Date().toISOString() })
+        .eq("id", reviewId)
         .select()
         .single();
-      if (!error && data) return data as GenerationLog;
+      if (!error && data) return data as Review;
     } catch (e) {
-      console.warn("Supabase createGenerationLog fallback:", e);
+      console.warn("Supabase replyReview error:", e);
     }
   }
 
-  if (!global.__vynterGenerationLogs) global.__vynterGenerationLogs = [];
-  global.__vynterGenerationLogs.unshift(newLog);
-  return newLog;
+  const review = global.__vnReviews?.find((r) => r.id === reviewId);
+  if (review) {
+    review.creator_reply = reply;
+    review.creator_reply_at = new Date().toISOString();
+    return review;
+  }
+  return null;
 }
 
-export async function getAllGenerationLogs(limit: number = 100): Promise<GenerationLog[]> {
-  if (isSupabaseServerConfigured()) {
+// ═══════════════════════════════════════════════════════════
+// FAME SCORE CALCULATION
+// Section 9.6 Fame formula
+// ═══════════════════════════════════════════════════════════
+
+export async function recalculateCharacterFame(characterId: string): Promise<number> {
+  const character = await getCharacterById(characterId);
+  if (!character) return 0;
+
+  const rentals = await getRentalsByCharacter(characterId);
+  const reviews = await getReviews(characterId);
+  const reelScenes = await getReelScenes(characterId);
+
+  const rentalsCompleted = rentals.filter((r) => r.ended_early || (r.expires_at && new Date(r.expires_at) < new Date())).length;
+  const uniqueStudios = new Set(rentals.map((r) => r.studio_id)).size;
+
+  const reviewCount = reviews.length;
+  const ratingAvg =
+    reviewCount > 0
+      ? reviews.reduce((sum, r) => sum + r.rating_overall, 0) / reviewCount
+      : 0;
+
+  const totalReelViews = reelScenes.reduce((sum, s) => sum + s.views, 0);
+
+  const createdTime = new Date(character.created_at).getTime();
+  const monthsSincePublish = Math.max(
+    0,
+    Math.floor((Date.now() - createdTime) / (30 * 24 * 60 * 60 * 1000))
+  );
+
+  const hasCompleteReel =
+    reelScenes.length >= 4 &&
+    ["danger", "social", "emotional", "light"].every((cat) =>
+      reelScenes.some((s) => s.category === cat)
+    );
+
+  const trials = rentals.filter((r) => r.kind === "trial").length;
+  const paidRentals = rentals.filter((r) => r.kind === "rental" || r.kind === "purchase").length;
+  const conversionRate = trials > 0 ? Math.min(1, paidRentals / trials) : 0;
+
+  // Formula from Section 9.6:
+  // fame = min(rentals_completed*10, 400)
+  //      + min(unique_studios*25, 400)
+  //      + (review_count>0 ? rating_avg*40 : 0) // max 200
+  //      + min(reel_views/25, 100)
+  //      + min(months_since_publish*5, 100)
+  //      + (reel_complete ? 60 : 0)
+  //      + trial_to_rental_conversion_rate*40 // 0–40
+  const score = Math.round(
+    Math.min(rentalsCompleted * 10, 400) +
+      Math.min(uniqueStudios * 25, 400) +
+      (reviewCount > 0 ? ratingAvg * 40 : 0) +
+      Math.min(totalReelViews / 25, 100) +
+      Math.min(monthsSincePublish * 5, 100) +
+      (hasCompleteReel ? 60 : 0) +
+      conversionRate * 40
+  );
+
+  let fame_tier: FameTier = "newcomer";
+  if (character.is_legend) {
+    fame_tier = "legend";
+  } else if (score >= 600) {
+    fame_tier = "veteran";
+  } else if (score >= 300) {
+    fame_tier = "established";
+  } else if (score >= 100) {
+    fame_tier = "rising";
+  }
+
+  await updateCharacter(characterId, {
+    fame_score: score,
+    fame_tier,
+    rating_avg: Number(ratingAvg.toFixed(2)),
+    review_count: reviewCount,
+    rental_count: rentals.length,
+    unique_studios: uniqueStudios,
+    reel_views: totalReelViews,
+  });
+
+  return score;
+}
+
+// ═══════════════════════════════════════════════════════════
+// OFFERS & PURCHASE
+// ═══════════════════════════════════════════════════════════
+
+export async function getOffers(
+  characterId?: string,
+  studioId?: string
+): Promise<Offer[]> {
+  if (isSupabaseConfigured) {
     try {
-      const { data, error } = await supabaseServer
-        .from("generation_logs")
-        .select("*, character:characters(*)")
-        .order("created_at", { ascending: false })
-        .limit(limit);
-      if (!error && data) return data as GenerationLog[];
+      let query = supabaseServer
+        .from("offers")
+        .select("*, character:characters(*), studio:accounts(id, username, display_name)");
+      if (characterId) query = query.eq("character_id", characterId.toUpperCase());
+      if (studioId) query = query.eq("studio_id", studioId);
+      const { data, error } = await query.order("created_at", { ascending: false });
+      if (!error && data) return data as Offer[];
     } catch (e) {
-      console.warn("Supabase getAllGenerationLogs fallback:", e);
+      console.warn("Supabase getOffers error:", e);
     }
   }
 
-  const logs = (global.__vynterGenerationLogs || []).slice(0, limit);
-  const chars = global.__vynterCharacters || SEED_CHARACTERS;
-  return logs.map((l) => ({
-    ...l,
-    character: l.character || chars.find((c) => c.id === l.character_id) || null,
+  let list = global.__vnOffers || [];
+  if (characterId) list = list.filter((o) => o.character_id.toUpperCase() === characterId.toUpperCase());
+  if (studioId) list = list.filter((o) => o.studio_id === studioId);
+  return list;
+}
+
+export async function createOffer(
+  arg1:
+    | string
+    | {
+        character_id: string;
+        studio_id: string;
+        amount_cents: number;
+        message?: string;
+      },
+  studioId?: string,
+  amountCents?: number,
+  initialMessage?: string
+): Promise<Offer> {
+  let charId: string;
+  let sId: string;
+  let cents: number;
+  let msg: string | undefined;
+
+  if (typeof arg1 === "object") {
+    charId = arg1.character_id;
+    sId = arg1.studio_id;
+    cents = arg1.amount_cents;
+    msg = arg1.message;
+  } else {
+    charId = arg1;
+    sId = studioId || "";
+    cents = amountCents || 0;
+    msg = initialMessage;
+  }
+
+  const newOffer: Offer = {
+    id: randomUUID(),
+    character_id: charId.toUpperCase(),
+    studio_id: sId,
+    amount_cents: cents,
+    status: "open",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    message: msg || null,
+    messages: msg
+      ? [
+          {
+            id: randomUUID(),
+            offer_id: "",
+            sender_id: sId,
+            amount_cents: cents,
+            body: msg,
+            created_at: new Date().toISOString(),
+          },
+        ]
+      : [],
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("offers")
+        .insert({
+          id: newOffer.id,
+          character_id: newOffer.character_id,
+          studio_id: newOffer.studio_id,
+          amount_cents: newOffer.amount_cents,
+          status: newOffer.status,
+        })
+        .select()
+        .single();
+      if (!error && data) {
+        if (initialMessage) {
+          await supabaseServer.from("offer_messages").insert({
+            offer_id: newOffer.id,
+            sender_id: studioId,
+            amount_cents: amountCents,
+            body: initialMessage,
+          });
+        }
+        return data as Offer;
+      }
+    } catch (e) {
+      console.warn("Supabase createOffer error:", e);
+    }
+  }
+
+  global.__vnOffers?.unshift(newOffer);
+  return newOffer;
+}
+
+export async function getOfferById(id: string): Promise<Offer | null> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("offers")
+        .select("*, character:characters(*), studio:accounts(id, username, display_name)")
+        .eq("id", id)
+        .single();
+      if (!error && data) return data as Offer;
+    } catch (e) {
+      console.warn("Supabase getOfferById error:", e);
+    }
+  }
+
+  const offer = (global.__vnOffers || []).find((o) => o.id === id);
+  return offer || null;
+}
+
+export async function updateOfferStatus(
+  id: string,
+  status: Offer["status"],
+  counterAmount?: number,
+  counterMessage?: string,
+  senderId?: string
+): Promise<Offer | null> {
+  const updatedAt = new Date().toISOString();
+  if (isSupabaseConfigured) {
+    try {
+      const updateData: any = { status, updated_at: updatedAt };
+      if (counterAmount) updateData.amount_cents = counterAmount;
+      const { data, error } = await supabaseServer
+        .from("offers")
+        .update(updateData)
+        .eq("id", id)
+        .select()
+        .single();
+      if (!error && data) {
+        if (counterMessage && senderId) {
+          await supabaseServer.from("offer_messages").insert({
+            offer_id: id,
+            sender_id: senderId,
+            amount_cents: counterAmount || null,
+            body: counterMessage,
+          });
+        }
+        return data as Offer;
+      }
+    } catch (e) {
+      console.warn("Supabase updateOfferStatus error:", e);
+    }
+  }
+
+  const offer = (global.__vnOffers || []).find((o) => o.id === id);
+  if (offer) {
+    offer.status = status;
+    offer.updated_at = updatedAt;
+    if (counterAmount) offer.amount_cents = counterAmount;
+    if (counterMessage && senderId) {
+      if (!offer.messages) offer.messages = [];
+      offer.messages.push({
+        id: randomUUID(),
+        offer_id: id,
+        sender_id: senderId,
+        amount_cents: counterAmount || null,
+        body: counterMessage,
+        created_at: updatedAt,
+      });
+    }
+    return offer;
+  }
+  return null;
+}
+
+export async function getOffersByStudio(studioId: string): Promise<Offer[]> {
+  return getOffers(undefined, studioId);
+}
+
+export async function getOffersByCreator(creatorId: string): Promise<Offer[]> {
+  const characters = await getCharacters({ owner_id: creatorId });
+  const charIds = new Set(characters.map((c) => c.id.toUpperCase()));
+  const allOffers = await getOffers();
+  return allOffers.filter((o) => charIds.has(o.character_id.toUpperCase()));
+}
+
+// ═══════════════════════════════════════════════════════════
+// SKILL TEMPLATES
+// ═══════════════════════════════════════════════════════════
+
+export async function getSkillTemplates(
+  category?: string,
+  creatorId?: string,
+  search?: string
+): Promise<SkillTemplate[]> {
+  if (isSupabaseConfigured) {
+    try {
+      let query = supabaseServer
+        .from("skill_templates")
+        .select("*, creator:accounts(id, username, display_name)");
+      if (category && category !== "all") query = query.eq("category", category);
+      if (creatorId) query = query.eq("creator_id", creatorId);
+      if (search) query = query.ilike("title", `%${search}%`);
+      const { data, error } = await query.order("created_at", { ascending: false });
+      if (!error && data) return data as SkillTemplate[];
+    } catch (e) {
+      console.warn("Supabase getSkillTemplates error:", e);
+    }
+  }
+
+  let list = global.__vnSkillTemplates || [];
+  if (category && category !== "all") list = list.filter((s) => s.category === category);
+  if (creatorId) list = list.filter((s) => s.creator_id === creatorId);
+  if (search) {
+    const s = search.toLowerCase();
+    list = list.filter((t) => t.title.toLowerCase().includes(s) || t.summary.toLowerCase().includes(s));
+  }
+  return list;
+}
+
+export async function getSkillTemplateById(
+  id: string
+): Promise<SkillTemplate | null> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("skill_templates")
+        .select("*, creator:accounts(id, username, display_name)")
+        .eq("id", id)
+        .maybeSingle();
+      if (!error && data) return data as SkillTemplate;
+    } catch (e) {
+      console.warn("Supabase getSkillTemplateById error:", e);
+    }
+  }
+  return global.__vnSkillTemplates?.find((s) => s.id === id) || null;
+}
+
+export async function createSkillTemplate(
+  tmpl: Partial<SkillTemplate>
+): Promise<SkillTemplate> {
+  const wordCount = (tmpl.content || "").trim().split(/\s+/).filter(Boolean).length;
+  const newTmpl: SkillTemplate = {
+    id: tmpl.id || randomUUID(),
+    creator_id: tmpl.creator_id || "",
+    title: tmpl.title || "Untitled Skill",
+    category: tmpl.category || "personality",
+    summary: tmpl.summary || "",
+    what_it_adds: tmpl.what_it_adds || [],
+    sample_scene: tmpl.sample_scene || null,
+    sample_output: tmpl.sample_output || null,
+    preview_excerpt: tmpl.preview_excerpt || tmpl.content?.slice(0, 150) || null,
+    content: tmpl.content || "",
+    tags: tmpl.tags || [],
+    price_cents: tmpl.price_cents || 0,
+    word_count: wordCount,
+    installs: 0,
+    created_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("skill_templates")
+        .insert(newTmpl)
+        .select()
+        .single();
+      if (!error && data) return data as SkillTemplate;
+    } catch (e) {
+      console.warn("Supabase createSkillTemplate error:", e);
+    }
+  }
+
+  global.__vnSkillTemplates?.unshift(newTmpl);
+  return newTmpl;
+}
+
+export async function hasAcquiredSkill(
+  templateId: string,
+  accountId: string
+): Promise<boolean> {
+  if (isSupabaseConfigured) {
+    try {
+      const { count } = await supabaseServer
+        .from("skill_acquisitions")
+        .select("*", { count: "exact", head: true })
+        .eq("template_id", templateId)
+        .eq("account_id", accountId);
+      return (count || 0) > 0;
+    } catch (e) {
+      console.warn("Supabase hasAcquiredSkill error:", e);
+    }
+  }
+  return (global.__vnSkillAcquisitions || []).some(
+    (a) => a.template_id === templateId && a.account_id === accountId
+  );
+}
+
+export async function acquireSkill(
+  templateId: string,
+  accountId: string,
+  priceCents: number
+): Promise<boolean> {
+  if (isSupabaseConfigured) {
+    try {
+      await supabaseServer.from("skill_acquisitions").insert({
+        template_id: templateId,
+        account_id: accountId,
+        price_cents: priceCents,
+      });
+      return true;
+    } catch (e) {
+      console.warn("Supabase acquireSkill error:", e);
+    }
+  }
+
+  global.__vnSkillAcquisitions?.push({
+    template_id: templateId,
+    account_id: accountId,
+    price_cents: priceCents,
+    created_at: new Date().toISOString(),
+  });
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CASTING CALLS
+// ═══════════════════════════════════════════════════════════
+
+export async function getCastingCalls(studioId?: string): Promise<CastingCall[]> {
+  if (isSupabaseConfigured) {
+    try {
+      let query = supabaseServer
+        .from("casting_calls")
+        .select("*, studio:accounts(id, username, display_name)");
+      if (studioId) query = query.eq("studio_id", studioId);
+      const { data, error } = await query.order("created_at", { ascending: false });
+      if (!error && data) return data as CastingCall[];
+    } catch (e) {
+      console.warn("Supabase getCastingCalls error:", e);
+    }
+  }
+
+  let list = global.__vnCastingCalls || [];
+  if (studioId) list = list.filter((c) => c.studio_id === studioId);
+  return list;
+}
+
+export async function createCastingCall(
+  call: Partial<CastingCall>
+): Promise<CastingCall> {
+  const newCall: CastingCall = {
+    id: call.id || randomUUID(),
+    studio_id: call.studio_id || "",
+    title: call.title || "Untitled Casting Call",
+    description: call.description || "",
+    genres: call.genres || [],
+    budget_cents: call.budget_cents || null,
+    deadline: call.deadline || null,
+    min_tier: call.min_tier || null,
+    status: "open",
+    created_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("casting_calls")
+        .insert(newCall)
+        .select()
+        .single();
+      if (!error && data) return data as CastingCall;
+    } catch (e) {
+      console.warn("Supabase createCastingCall error:", e);
+    }
+  }
+
+  global.__vnCastingCalls?.unshift(newCall);
+  return newCall;
+}
+
+export async function applyToCastingCall(
+  callId: string,
+  characterId: string,
+  message: string
+): Promise<CastingApplication> {
+  const newApp: CastingApplication = {
+    id: randomUUID(),
+    call_id: callId,
+    character_id: characterId.toUpperCase(),
+    message,
+    status: "pending",
+    created_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("casting_applications")
+        .insert(newApp)
+        .select()
+        .single();
+      if (!error && data) return data as CastingApplication;
+    } catch (e) {
+      console.warn("Supabase applyToCastingCall error:", e);
+    }
+  }
+
+  global.__vnCastingApplications?.unshift(newApp);
+  return newApp;
+}
+
+export async function getCastingApplications(callId: string): Promise<CastingApplication[]> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("casting_applications")
+        .select("*, character:characters(*)")
+        .eq("call_id", callId)
+        .order("created_at", { ascending: false });
+      if (!error && data) return data as CastingApplication[];
+    } catch (e) {
+      console.warn("Supabase getCastingApplications error:", e);
+    }
+  }
+
+  const apps = (global.__vnCastingApplications || []).filter((a) => a.call_id === callId);
+  const characters = await getCharacters();
+  return apps.map((a) => ({
+    ...a,
+    character: characters.find((c) => c.id === a.character_id) || undefined,
   }));
 }
 
-export async function updateGenerationLogVideo(
-  logId: string,
-  videoUrl: string,
-  status: string = "succeeded"
-): Promise<void> {
-  if (isSupabaseServerConfigured()) {
+export async function updateCastingApplicationStatus(
+  appId: string,
+  status: "pending" | "shortlisted" | "declined"
+): Promise<boolean> {
+  if (isSupabaseConfigured) {
     try {
       await supabaseServer
-        .from("generation_logs")
-        .update({ video_url: videoUrl, status, updated_at: new Date().toISOString() })
-        .eq("id", logId);
+        .from("casting_applications")
+        .update({ status })
+        .eq("id", appId);
+      return true;
     } catch (e) {
-      console.warn("Supabase updateGenerationLogVideo fallback:", e);
+      console.warn("Supabase updateCastingApplicationStatus error:", e);
     }
   }
 
-  const log = global.__vynterGenerationLogs?.find((l) => l.id === logId);
-  if (log) {
-    log.video_url = videoUrl;
-    log.status = status as any;
+  const app = (global.__vnCastingApplications || []).find((a) => a.id === appId);
+  if (app) {
+    app.status = status;
+    return true;
+  }
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SAVED CHARACTERS
+// ═══════════════════════════════════════════════════════════
+
+export async function getSavedCharacters(accountId: string): Promise<Character[]> {
+  let charIds: string[] = [];
+  if (isSupabaseConfigured) {
+    try {
+      const { data } = await supabaseServer
+        .from("saved_characters")
+        .select("character_id")
+        .eq("account_id", accountId);
+      charIds = (data || []).map((d: any) => d.character_id);
+    } catch (e) {
+      console.warn("Supabase getSavedCharacters error:", e);
+    }
+  } else {
+    charIds = (global.__vnSavedCharacters || [])
+      .filter((s) => s.account_id === accountId)
+      .map((s) => s.character_id);
+  }
+
+  const all = await getCharacters();
+  return all.filter((c) => charIds.includes(c.id));
+}
+
+export async function toggleSaveCharacter(
+  accountId: string,
+  characterId: string
+): Promise<boolean> {
+  const norm = characterId.toUpperCase();
+  const saved = await isCharacterSaved(accountId, norm);
+
+  if (isSupabaseConfigured) {
+    try {
+      if (saved) {
+        await supabaseServer
+          .from("saved_characters")
+          .delete()
+          .eq("account_id", accountId)
+          .eq("character_id", norm);
+        return false;
+      } else {
+        await supabaseServer
+          .from("saved_characters")
+          .insert({ account_id: accountId, character_id: norm });
+        return true;
+      }
+    } catch (e) {
+      console.warn("Supabase toggleSaveCharacter error:", e);
+    }
+  }
+
+  if (saved) {
+    global.__vnSavedCharacters = (global.__vnSavedCharacters || []).filter(
+      (s) => !(s.account_id === accountId && s.character_id === norm)
+    );
+    return false;
+  } else {
+    global.__vnSavedCharacters?.push({ account_id: accountId, character_id: norm });
+    return true;
   }
 }
+
+export async function isCharacterSaved(
+  accountId: string,
+  characterId: string
+): Promise<boolean> {
+  const norm = characterId.toUpperCase();
+  if (isSupabaseConfigured) {
+    try {
+      const { count } = await supabaseServer
+        .from("saved_characters")
+        .select("*", { count: "exact", head: true })
+        .eq("account_id", accountId)
+        .eq("character_id", norm);
+      return (count || 0) > 0;
+    } catch (e) {
+      console.warn("Supabase isCharacterSaved error:", e);
+    }
+  }
+  return (global.__vnSavedCharacters || []).some(
+    (s) => s.account_id === accountId && s.character_id === norm
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// TRANSACTIONS
+// ═══════════════════════════════════════════════════════════
+
+export async function createTransaction(tx: Partial<Transaction>): Promise<Transaction> {
+  const newTx: Transaction = {
+    id: tx.id || randomUUID(),
+    payer_id: tx.payer_id || null,
+    payee_id: tx.payee_id || null,
+    character_id: tx.character_id ? tx.character_id.toUpperCase() : null,
+    kind: tx.kind || "rental",
+    amount_cents: tx.amount_cents || 0,
+    platform_fee_cents: tx.platform_fee_cents || 0,
+    mode: "test",
+    created_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("transactions")
+        .insert(newTx)
+        .select()
+        .single();
+      if (!error && data) return data as Transaction;
+    } catch (e) {
+      console.warn("Supabase createTransaction error:", e);
+    }
+  }
+
+  global.__vnTransactions?.unshift(newTx);
+  return newTx;
+}
+
+export async function getTransactionsByAccount(
+  accountId: string
+): Promise<Transaction[]> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("transactions")
+        .select("*")
+        .or(`payer_id.eq.${accountId},payee_id.eq.${accountId}`)
+        .order("created_at", { ascending: false });
+      if (!error && data) return data as Transaction[];
+    } catch (e) {
+      console.warn("Supabase getTransactionsByAccount error:", e);
+    }
+  }
+  return (global.__vnTransactions || []).filter(
+    (t) => t.payer_id === accountId || t.payee_id === accountId
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════
+
+export async function getNotifications(
+  accountId: string
+): Promise<Notification[]> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("notifications")
+        .select("*")
+        .eq("account_id", accountId)
+        .order("created_at", { ascending: false });
+      if (!error && data) return data as Notification[];
+    } catch (e) {
+      console.warn("Supabase getNotifications error:", e);
+    }
+  }
+  return (global.__vnNotifications || []).filter((n) => n.account_id === accountId);
+}
+
+export async function createNotification(
+  notif: Partial<Notification>
+): Promise<Notification> {
+  const newNotif: Notification = {
+    id: notif.id || randomUUID(),
+    account_id: notif.account_id || "",
+    type: notif.type || "info",
+    title: notif.title || "Notification",
+    body: notif.body || null,
+    link: notif.link || null,
+    read: false,
+    created_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabaseServer
+        .from("notifications")
+        .insert(newNotif)
+        .select()
+        .single();
+      if (!error && data) return data as Notification;
+    } catch (e) {
+      console.warn("Supabase createNotification error:", e);
+    }
+  }
+
+  global.__vnNotifications?.unshift(newNotif);
+  return newNotif;
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    try {
+      await supabaseServer
+        .from("notifications")
+        .update({ read: true })
+        .eq("id", id);
+    } catch (e) {
+      console.warn("Supabase markNotificationRead error:", e);
+    }
+  }
+
+  const notif = global.__vnNotifications?.find((n) => n.id === id);
+  if (notif) notif.read = true;
+}
+
+export async function markAllNotificationsRead(accountId: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    try {
+      await supabaseServer
+        .from("notifications")
+        .update({ read: true })
+        .eq("account_id", accountId);
+    } catch (e) {
+      console.warn("Supabase markAllNotificationsRead error:", e);
+    }
+  }
+
+  (global.__vnNotifications || [])
+    .filter((n) => n.account_id === accountId)
+    .forEach((n) => {
+      n.read = true;
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// MCP LOGS
+// ═══════════════════════════════════════════════════════════
+
+export async function logMcpCall(log: Partial<McpLog>): Promise<void> {
+  const newLog: McpLog = {
+    id: Date.now(),
+    account_id: log.account_id || null,
+    method: log.method || null,
+    tool: log.tool || null,
+    character_id: log.character_id ? log.character_id.toUpperCase() : null,
+    ok: Boolean(log.ok),
+    ms: log.ms || 0,
+    error: log.error || null,
+    created_at: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabaseServer.from("mcp_logs").insert(newLog);
+      return;
+    } catch (e) {
+      console.warn("Supabase logMcpCall error:", e);
+    }
+  }
+
+  global.__vnMcpLogs?.unshift(newLog);
+}
+
+export async function getRecentMcpLogs(
+  accountId?: string,
+  limit = 10
+): Promise<McpLog[]> {
+  if (isSupabaseConfigured) {
+    try {
+      let query = supabaseServer.from("mcp_logs").select("*");
+      if (accountId) query = query.eq("account_id", accountId);
+      const { data, error } = await query
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (!error && data) return data as McpLog[];
+    } catch (e) {
+      console.warn("Supabase getRecentMcpLogs error:", e);
+    }
+  }
+
+  let list = global.__vnMcpLogs || [];
+  if (accountId) list = list.filter((l) => l.account_id === accountId);
+  return list.slice(0, limit);
+}
+
+// ═══════════════════════════════════════════════════════════
+// BACKWARD-COMPATIBILITY EXPORT ALIASES
+// ═══════════════════════════════════════════════════════════
+
+export const getProfileByAccountKey = getAccountByKey;
+export const getProfileById = getAccountById;
+export const getRentalsByStudioId = getRentalsByStudio;
+export const getCharacterByName = getCharacterByNameOrId;
+export const getAllCharacters = getCharacters;
+export const getReviewsByCharacterId = getReviews;
+export const getReelScenesByCharacter = getReelScenes;
+export const updateGenerationLogVideo = async (id: string, url: string) =>
+  updateGeneration(id, { enriched_prompt: url });
+export const getAllGenerationLogs = getGenerationsList;
+export const getMcpLogs = getRecentMcpLogs;
+export const createGenerationLog = createGeneration;
+export const createOrUpdateProfile = updateAccount;
+export const checkCharacterNameAvailable = async (name: string, ownerId: string) => true;
+export const createCharacterWithSkills = createCharacterDraft;
+
+export const DEMO_STUDIO: Partial<Account> = {
+  id: "s0000000-0000-0000-0000-000000000002",
+  username: "demo_studio",
+  display_name: "Demo Studio",
+  active_mode: "studio",
+  has_studio: true,
+  has_creator: false,
+  account_key: "vn-test-key-001",
+};
 

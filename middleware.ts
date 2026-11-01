@@ -1,19 +1,48 @@
-import { type NextRequest } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+import { NextRequest, NextResponse } from "next/server";
+import { jwtVerify } from "jose";
+
+const rawSecret =
+  process.env.SESSION_SECRET ||
+  "vynter-north-fallback-session-secret-key-32chars-minimum!!";
+const JWT_SECRET = new TextEncoder().encode(rawSecret);
 
 export async function middleware(request: NextRequest) {
-  return await updateSession(request);
+  const { pathname } = request.nextUrl;
+
+  const isProtected =
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/studio") ||
+    pathname.startsWith("/admin");
+
+  if (isProtected) {
+    const token = request.cookies.get("vn_session")?.value;
+    let isAuthenticated = false;
+
+    if (token) {
+      try {
+        const { payload } = await jwtVerify(token, JWT_SECRET);
+        if (payload?.accountId) {
+          isAuthenticated = true;
+        }
+      } catch {
+        isAuthenticated = false;
+      }
+    }
+
+    if (!isAuthenticated) {
+      const signInUrl = new URL("/signin", request.url);
+      signInUrl.searchParams.set("next", pathname);
+      return NextResponse.redirect(signInUrl);
+    }
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public assets (.svg, .png, .jpg, .jpeg, .gif, .webp)
-     */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/dashboard/:path*",
+    "/studio/:path*",
+    "/admin/:path*",
   ],
 };

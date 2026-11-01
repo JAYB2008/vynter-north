@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import {
-  getProfileByAccountKey,
-  getRentalByMcpToken,
   getCharacterById,
-  getCharacterByName,
+  getRentalsByStudio,
+  createGeneration,
+  getGenerationsBySceneGroup,
   incrementRentalCreditsUsed,
-  logGeneration,
 } from "@/lib/db";
 import { enrichScene } from "@/lib/enrichment";
+import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,115 +16,211 @@ export const maxDuration = 60;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { scene, characterId, accountKey, mcpToken } = body;
+    const {
+      character_id,
+      scene,
+      scene_group = randomUUID(),
+      source = "web",
+      also_present = [],
+    } = body;
 
     if (!scene || typeof scene !== "string" || !scene.trim()) {
       return NextResponse.json(
-        { error: "Scene description is required." },
+        {
+          ok: false,
+          error: {
+            code: "SCENE_REQUIRED",
+            message: "Scene text is required.",
+          },
+        },
         { status: 400 }
       );
     }
 
-    let authenticatedProfile = null;
-    let activeRental = null;
-
-    // 1. Validate authorization
-    if (mcpToken) {
-      activeRental = await getRentalByMcpToken(mcpToken);
-      if (!activeRental) {
-        return NextResponse.json(
-          { error: "Invalid or expired MCP rental token." },
-          { status: 401 }
-        );
-      }
-      if (activeRental.status !== "active") {
-        return NextResponse.json(
-          { error: "Rental is no longer active." },
-          { status: 403 }
-        );
-      }
-      if (
-        activeRental.expires_at &&
-        new Date(activeRental.expires_at).getTime() < Date.now()
-      ) {
-        return NextResponse.json(
-          { error: "Rental period has expired. Please renew your rental." },
-          { status: 403 }
-        );
-      }
-      const creditsLeft =
-        activeRental.generation_credits - activeRental.credits_used;
-      if (creditsLeft <= 0) {
-        return NextResponse.json(
-          {
-            error:
-              "Generation credit balance exhausted. Please add credits or upgrade your rental tier.",
-            creditsRemaining: 0,
+    if (!character_id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "CHARACTER_REQUIRED",
+            message: "Please select a character.",
           },
-          { status: 402 }
-        );
-      }
-    } else if (accountKey) {
-      authenticatedProfile = await getProfileByAccountKey(accountKey);
-      if (!authenticatedProfile && accountKey !== "vn-test-key-001") {
-        return NextResponse.json(
-          { error: "Invalid Vynter North account key." },
-          { status: 401 }
-        );
-      }
-    }
-    // Note: If called from public demo without auth key, we allow trial enrichment!
-
-    // 2. Find character
-    let character = null;
-    if (activeRental?.character) {
-      character = activeRental.character;
-    } else if (characterId) {
-      character =
-        (await getCharacterById(characterId)) ||
-        (await getCharacterByName(characterId));
-    } else {
-      // Default to Cairo if unspecified
-      character = await getCharacterByName("Cairo");
+        },
+        { status: 400 }
+      );
     }
 
+    const character = await getCharacterById(character_id);
     if (!character) {
       return NextResponse.json(
-        { error: `Character not found: ${characterId || "Cairo"}` },
+        {
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Character not found." },
+        },
         { status: 404 }
       );
     }
 
-    // 3. Perform Character Enrichment
-    const enrichment = await enrichScene({ character, scene });
-
-    // 4. Update usage and log if rental token exists
-    if (activeRental) {
-      await incrementRentalCreditsUsed(activeRental.id, 1);
-      await logGeneration({
-        rental_id: activeRental.id,
-        character_id: character.id,
-        original_prompt: scene,
-        enriched_prompt: enrichment.enriched_prompt,
-        original_word_count: enrichment.word_count.original,
-        enriched_word_count: enrichment.word_count.enriched,
-        status: "kept",
-      });
+    if (character.status === "suspended") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "CHARACTER_SUSPENDED",
+            message: "This character is currently suspended by administration.",
+          },
+        },
+        { status: 403 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      character: enrichment.character,
-      original_prompt: enrichment.original_prompt,
-      enriched_prompt: enrichment.enriched_prompt,
-      behavior_breakdown: enrichment.behavior_breakdown,
-      word_count: enrichment.word_count,
-      model_used: enrichment.model_used,
+    const session = await getSession();
+    let rental: any = null;
+    let accessType: string = "denied";
+
+    // Access Check (Section 11)
+    if (session && session.id === character.owner_id) {
+      accessType = "owner_test";
+    } else if (character.is_demo) {
+      accessType = "demo";
+    } else if (session) {
+      const myRentals = await getRentalsByStudio(session.id);
+      const activeOrGrace = myRentals.find(
+        (r) =>
+          r.character_id.toUpperCase() === character.id.toUpperCase() &&
+          !r.ended_early
+      );
+
+      if (activeOrGrace) {
+        const now = Date.now();
+        const expiresAt = activeOrGrace.expires_at
+          ? new Date(activeOrGrace.expires_at).getTime()
+          : Infinity;
+        const graceAt = activeOrGrace.grace_ends_at
+          ? new Date(activeOrGrace.grace_ends_at).getTime()
+          : Infinity;
+
+        if (now < expiresAt) {
+          rental = activeOrGrace;
+          accessType = activeOrGrace.kind;
+        } else if (now < graceAt) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: {
+                code: "RENTAL_IN_GRACE",
+                message: `${character.name}'s rental period has ended. It is in the 10-day grace period — renew in your library to continue enriching scenes.`,
+              },
+            },
+            { status: 403 }
+          );
+        } else {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: {
+                code: "RENTAL_EXPIRED",
+                message: `${character.name}'s rental and grace period have expired.`,
+              },
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
+    if (accessType === "denied" && !character.is_demo) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "ACCESS_DENIED",
+            message: `You do not have an active rental for ${character.name}. Start a free 3-day trial or rental to enrich scenes.`,
+          },
+        },
+        { status: 403 }
+      );
+    }
+
+    // Check credits if applicable
+    if (rental) {
+      const creditsRemaining = rental.credits_total - rental.credits_used;
+      if (creditsRemaining <= 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: "NO_CREDITS",
+              message: "Your credit balance is exhausted. Top up credits or renew your term in your library.",
+            },
+          },
+          { status: 402 }
+        );
+      }
+    }
+
+    // Check scene group retries count (Section 9.2: up to 10 free previews per group)
+    const existingInGroup = await getGenerationsBySceneGroup(scene_group);
+    const previewCount = existingInGroup.length;
+    let autoCharge = false;
+    if (previewCount >= 10 && rental) {
+      autoCharge = true;
+      await incrementRentalCreditsUsed(rental.id, 1);
+    }
+
+    // Call Character Intelligence Layer
+    const result = await enrichScene({
+      character,
+      scene,
+      behavior_settings: rental?.settings,
+      also_present,
     });
-  } catch (error: any) {
-    console.error("Enrichment API error:", error);
+
+    // Save generation log with status "preview" (Section 9.2)
+    const generation = await createGeneration({
+      rental_id: rental?.id || null,
+      character_id: character.id,
+      account_id: session?.id || null,
+      scene_group,
+      source: source as any,
+      scene_text: scene,
+      enriched_prompt: result.enriched_prompt,
+      breakdown: {
+        facial_expression: result.facial_expression,
+        body_language: result.body_language,
+        emotional_state: result.emotional_state,
+        dialogue_direction: result.dialogue_direction,
+        scene_integration: result.scene_integration,
+      },
+      analysis: result.scene_analysis,
+      status: "preview",
+      charged: autoCharge,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      data: {
+        generation_id: generation.id,
+        scene_group,
+        preview_index: previewCount + 1,
+        free_previews_remaining: Math.max(0, 10 - previewCount),
+        charged_immediately: autoCharge,
+        is_trial: accessType === "trial",
+        ...result,
+      },
+    });
+  } catch (err: any) {
+    console.error("Enrichment API error:", err);
     return NextResponse.json(
-      { error: error.message || "Failed to enrich scene." },
+      {
+        ok: false,
+        error: {
+          code: "ENRICHMENT_FAILED",
+          message:
+            err.message ||
+            "Intelligence engine was unable to enrich this scene. Check your inputs and try again.",
+        },
+      },
       { status: 500 }
     );
   }
