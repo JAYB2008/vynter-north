@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   try {
     const account = await requireAccount();
     const body = await req.json();
-    const { mode } = body;
+    const mode = body.mode || body.target_mode;
 
     if (mode !== "creator" && mode !== "studio") {
       return NextResponse.json(
@@ -17,33 +17,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (mode === "creator" && !account.has_creator) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: {
-            code: "ROLE_NOT_INITIALIZED",
-            message: "Creator profile is not initialized. Please add the Creator role first.",
-          },
-        },
-        { status: 403 }
-      );
-    }
+    const updates: any = { active_mode: mode };
+    if (mode === "creator") updates.has_creator = true;
+    if (mode === "studio") updates.has_studio = true;
 
-    if (mode === "studio" && !account.has_studio) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: {
-            code: "ROLE_NOT_INITIALIZED",
-            message: "Studio profile is not initialized. Please add the Studio role first.",
-          },
-        },
-        { status: 403 }
-      );
-    }
-
-    const updated = await updateAccount(account.id, { active_mode: mode });
+    const updated = await updateAccount(account.id, updates);
     if (!updated) {
       throw new Error("Failed to update active mode.");
     }
