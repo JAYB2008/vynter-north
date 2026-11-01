@@ -42,7 +42,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const cleanUsername = username.trim().toLowerCase();
+    let cleanUsername = username.trim().toLowerCase();
+    if (cleanUsername.includes("@")) {
+      cleanUsername = cleanUsername.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "");
+    }
     const account = await getAccountByUsername(cleanUsername);
 
     if (!account) {

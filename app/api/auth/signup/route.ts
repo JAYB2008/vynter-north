@@ -34,14 +34,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const cleanUsername = username.trim().toLowerCase();
-    if (!/^[a-zA-Z0-9_]{3,24}$/.test(cleanUsername)) {
+    let cleanUsername = username.trim().toLowerCase();
+    // If an email address was submitted or autofilled, extract handle before @
+    if (cleanUsername.includes("@")) {
+      cleanUsername = cleanUsername.split("@")[0];
+    }
+    cleanUsername = cleanUsername.replace(/[^a-zA-Z0-9_]/g, "").slice(0, 24);
+
+    if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 24) {
       return NextResponse.json(
         {
           ok: false,
           error: {
             code: "INVALID_USERNAME_FORMAT",
-            message: "Username must be 3–24 letters, numbers, or underscores.",
+            message: "Username must be 3–24 letters, numbers, or underscores. No email required.",
           },
         },
         { status: 400 }

@@ -87,18 +87,23 @@ function SignInForm() {
               <label className="block text-sm font-medium text-text mb-1">
                 Username
               </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-dim">@</span>
-                <input
-                  type="text"
-                  required
-                  placeholder="username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                  className="input-base pl-8"
-                  autoComplete="username"
-                />
-              </div>
+              <input
+                id="signin-username"
+                name="username"
+                type="text"
+                required
+                placeholder="Username or handle"
+                value={username}
+                onChange={(e) => {
+                  let val = e.target.value.toLowerCase().trim();
+                  if (val.includes("@")) {
+                    val = val.split("@")[0].replace(/[^a-z0-9_]/g, "").slice(0, 24);
+                  }
+                  setUsername(val);
+                }}
+                className="input-base"
+                autoComplete="username"
+              />
             </div>
 
             <div>

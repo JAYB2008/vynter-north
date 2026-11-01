@@ -32,7 +32,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const cleanUsername = username.trim().toLowerCase();
+    let cleanUsername = username.trim().toLowerCase();
+    if (cleanUsername.includes("@")) {
+      cleanUsername = cleanUsername.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "");
+    }
 
     // Check rate limit throttle: 5 failed attempts per username+IP per 10 minutes
     const throttle = await checkLoginAttempts(cleanUsername, ip);

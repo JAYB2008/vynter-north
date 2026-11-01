@@ -99,12 +99,14 @@ export default function SignUpPage() {
     e.preventDefault();
     setError(null);
 
-    if (username.trim().length < 3 || username.trim().length > 24) {
-      setError("Username must be between 3 and 24 characters.");
-      return;
+    let cleanUser = username.trim().toLowerCase();
+    if (cleanUser.includes("@")) {
+      cleanUser = cleanUser.split("@")[0];
     }
-    if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
-      setError("Username can only contain letters, numbers, and underscores.");
+    cleanUser = cleanUser.replace(/[^a-z0-9_]/g, "").slice(0, 24);
+
+    if (cleanUser.length < 3 || cleanUser.length > 24) {
+      setError("Username must be between 3 and 24 characters (letters, numbers, underscores).");
       return;
     }
     if (displayName.trim().length < 2) {
@@ -120,6 +122,7 @@ export default function SignUpPage() {
       return;
     }
 
+    setUsername(cleanUser);
     setLoading(true);
     try {
       const res = await apiFetch<{ account: any; recovery_code: string }>(
@@ -127,7 +130,7 @@ export default function SignUpPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            username: username.trim(),
+            username: cleanUser,
             display_name: displayName.trim(),
             password,
             role,
@@ -350,21 +353,38 @@ export default function SignUpPage() {
 
               <div>
                 <label className="block text-sm font-medium text-text mb-1">
-                  Username (unique handle)
+                  Username
                 </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-dim">@</span>
-                  <input
-                    type="text"
-                    required
-                    placeholder="username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                    className="input-base pl-8"
-                  />
-                </div>
+                <input
+                  id="signup-username"
+                  name="username"
+                  type="text"
+                  required
+                  autoComplete="username"
+                  placeholder="e.g. isebrain2008 or cairo"
+                  value={username}
+                  onChange={(e) => {
+                    let val = e.target.value.toLowerCase().trim();
+                    if (val.includes("@")) {
+                      val = val.split("@")[0];
+                    }
+                    val = val.replace(/[^a-z0-9_]/g, "").slice(0, 24);
+                    setUsername(val);
+                    if (error) setError(null);
+                  }}
+                  onPaste={(e) => {
+                    const pasted = e.clipboardData.getData("text").toLowerCase().trim();
+                    if (pasted.includes("@")) {
+                      e.preventDefault();
+                      const cleaned = pasted.split("@")[0].replace(/[^a-z0-9_]/g, "").slice(0, 24);
+                      setUsername(cleaned);
+                      if (error) setError(null);
+                    }
+                  }}
+                  className="input-base"
+                />
                 <p className="text-xs text-dim mt-1">
-                  3–24 characters: letters, numbers, and underscores only.
+                  3–24 characters (letters, numbers, underscores). No email needed.
                 </p>
               </div>
 
