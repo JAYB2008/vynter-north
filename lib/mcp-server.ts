@@ -275,7 +275,7 @@ Body: ${b.body_language}
 Internal: ${b.emotional_state}
 Voice: ${b.dialogue_direction}
 
-${enriched.word_count.original} words → ${enriched.word_count.enriched} words (${enriched.word_count.multiplier}x enrichment)`;
+${enriched.word_count.original} words → ${enriched.word_count.enriched} words (${String(enriched.word_count.multiplier).replace(/x$/, "")}x enrichment)`;
 
       return {
         jsonrpc: "2.0",
